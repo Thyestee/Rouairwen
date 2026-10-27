@@ -1,0 +1,2 @@
+# Exported game builds (attach them to a GitHub Release instead of committing them)
+build/

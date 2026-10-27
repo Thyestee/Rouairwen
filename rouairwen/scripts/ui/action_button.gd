@@ -1,0 +1,86 @@
+class_name ActionButton
+extends TipButton
+## A spell on the action bar: icon, keybind, cooldown sweep, and a tint when out of mana.
+
+var spell_id := ""
+var key := ""
+var engine: CombatEngine
+var spell_icon: SpellIcon
+var overlay: Control
+var is_potion := false
+
+
+func setup(p_id: String, p_key: String, p_engine: CombatEngine, level: int) -> ActionButton:
+	spell_id = p_id
+	key = p_key
+	engine = p_engine
+	custom_minimum_size = Vector2(54, 54)
+	var empty := StyleBoxEmpty.new()
+	for st in ["normal", "hover", "pressed", "disabled"]:
+		add_theme_stylebox_override(st, empty)
+	if is_potion:
+		var r := Game.best_stock_rank("mana_potion")
+		spell_icon = SpellIcon.new("mana_potion", WowIcons.consumable(ShopData.rank_name("mana_potion", maxi(r, 0))))
+	else:
+		spell_icon = SpellIcon.new(Spells.BOOK[p_id]["icon"], WowIcons.spell(p_id, level))
+	spell_icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(spell_icon)
+	overlay = Control.new()
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.draw.connect(_draw_overlay)
+	add_child(overlay)
+	if is_potion:
+		set_tip("[b]Mana Potion[/b]\nDrink your best mana potion. 60s cooldown.\n[color=#8a7262]Key: F[/color]")
+	else:
+		var s: Dictionary = Spells.BOOK[p_id]
+		var cast_txt := "Instant" if s["cast"] == 0.0 else ("Channeled (%.1f sec)" % s["cast"] if s.get("channel", 0) else "%.1f sec cast" % s["cast"])
+		var cd := "\n%d sec cooldown" % int(s["cooldown"]) if s.has("cooldown") else ""
+		set_tip("[b]%s[/b]\n%d Mana\n%s%s\n[color=#ffd100]%s[/color]\n[color=#8a7262]Key: %s[/color]" % [Spells.display_name(p_id, level),
+			int(s["mana"] * Balance.scale(level)), cast_txt, cd, s["desc"], p_key])
+	return self
+
+
+func _process(_d: float) -> void:
+	overlay.queue_redraw()
+
+
+func _draw_overlay() -> void:
+	var s := overlay.size
+	var font := Style.bold_font()
+	var cd := 0.0
+	var total := 1.0
+	var usable := true
+	if is_potion:
+		cd = engine.potion_cd
+		total = 60.0
+		usable = engine.mana_potions > 0
+	else:
+		var sp: Dictionary = Spells.BOOK[spell_id]
+		cd = engine.cooldown_left(spell_id)
+		total = sp.get("cooldown", 1.0)
+		if not sp.get("off_gcd", false) and engine.gcd > cd:
+			cd = engine.gcd
+			total = CombatEngine.GCD
+		if engine.mana < engine.spell_cost(spell_id):
+			overlay.draw_rect(Rect2(Vector2.ZERO, s), Color(0.1, 0.2, 0.8, 0.45))
+	if not usable:
+		overlay.draw_rect(Rect2(Vector2.ZERO, s), Color(0, 0, 0, 0.6))
+	if cd > 0.0:
+		var frac := clampf(cd / total, 0.0, 1.0)
+		overlay.draw_rect(Rect2(0, s.y * (1.0 - frac), s.x, s.y * frac), Color(0, 0, 0, 0.62))
+		if cd > 1.6:
+			var t := str(int(ceil(cd)))
+			overlay.draw_string_outline(font, Vector2(0, s.y / 2 + 7), t, HORIZONTAL_ALIGNMENT_CENTER, s.x, 18, 4, Color.BLACK)
+			overlay.draw_string(font, Vector2(0, s.y / 2 + 7), t, HORIZONTAL_ALIGNMENT_CENTER, s.x, 18, Color("ffd86b"))
+	# Active-cast highlight
+	if not is_potion and not engine.casting.is_empty() and engine.casting["id"] == spell_id:
+		overlay.draw_rect(Rect2(Vector2.ZERO, s), Color("ffd86b"), false, 3.0)
+	if is_potion:
+		var n := str(engine.mana_potions)
+		overlay.draw_string_outline(font, Vector2(0, s.y - 4), n, HORIZONTAL_ALIGNMENT_RIGHT, s.x - 4, 13, 3, Color.BLACK)
+		overlay.draw_string(font, Vector2(0, s.y - 4), n, HORIZONTAL_ALIGNMENT_RIGHT, s.x - 4, 13, Color.WHITE)
+	overlay.draw_string_outline(font, Vector2(4, 14), key, HORIZONTAL_ALIGNMENT_LEFT, s.x, 12, 3, Color.BLACK)
+	overlay.draw_string(font, Vector2(4, 14), key, HORIZONTAL_ALIGNMENT_LEFT, s.x, 12, Color("e0e0e0"))
+	if is_hovered():
+		overlay.draw_rect(Rect2(Vector2.ZERO, s), Color(1, 1, 1, 0.8), false, 2.0)
