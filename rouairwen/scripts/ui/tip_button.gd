@@ -19,7 +19,11 @@ func _make_custom_tooltip(_for_text: String) -> Object:
 	return TipButton.make_tip(tip)
 
 
+## The tooltip panel for `bb`, or null when there's nothing to show. Godot asks for a custom tooltip
+## even when the tooltip text is empty, and null is the only answer that shows no tooltip at all.
 static func make_tip(bb: String, width := 300) -> Control:
+	if bb.strip_edges().is_empty():
+		return null
 	var p := PanelContainer.new()
 	p.add_theme_stylebox_override("panel", Style.box(Color(0.04, 0.03, 0.07, 0.97), Color("8a8aa8"), 1, 4, 10))
 	var r := RichTextLabel.new()

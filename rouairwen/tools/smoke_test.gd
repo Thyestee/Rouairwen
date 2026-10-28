@@ -24,6 +24,12 @@ func run() -> void:
 	_check(Game.data["recruits"].all(func(c): return c["traits"].size() == 2 and c["affixes"].size() <= 2), "recruits have 2 traits and up to 2 affixes")
 	_check(UnitFrame.aura_tooltip({"id": "dot_x", "name": "Shadow Word: Pain", "dot": 12.0, "period": 3.0, "remaining": 9.0,
 		"harmful": true, "dispel": "magic", "kind": "magic_dot"}).contains("Dispel Magic"), "debuff tooltip explains how to remove it")
+	var empty_slot := ItemButton.new().setup({}, "neck")
+	var frame := UnitFrame.new()
+	_check(empty_slot._make_custom_tooltip("") == null and frame._make_custom_tooltip(" ") == null,
+		"no tooltip appears when there's nothing to show")
+	empty_slot.free()
+	frame.free()
 	main.show_hub()
 	await _frames(3)
 	for p in ["quests", "guild", "character", "dungeons", "raids", "recruit", "shop", "missions", "hall", "talents"]:

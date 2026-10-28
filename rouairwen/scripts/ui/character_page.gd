@@ -294,9 +294,10 @@ func _avg_ilvl(m: Dictionary) -> String:
 func _stat_row(stat: String, value: String, help: String) -> Control:
 	var h := Style.hbox(8)
 	var lbl := Style.label(stat, 15, Style.C["muted"])
-	lbl.tooltip_text = help
-	lbl.mouse_filter = Control.MOUSE_FILTER_STOP
-	lbl.mouse_default_cursor_shape = Control.CURSOR_HELP
+	if help != "":
+		lbl.tooltip_text = help
+		lbl.mouse_filter = Control.MOUSE_FILTER_STOP
+		lbl.mouse_default_cursor_shape = Control.CURSOR_HELP
 	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	h.add_child(lbl)
 	var val := Style.label(value, 15, Style.C["text"])
