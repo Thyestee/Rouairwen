@@ -52,6 +52,19 @@ godot --headless --path rouairwen --export-release "Windows Desktop" ../build/wi
 
 Share the exe through a GitHub Release rather than committing it. It isn't code-signed, so Windows SmartScreen may warn on first launch ("More info" → "Run anyway").
 
+## Launcher (auto-update)
+
+`launcher/` is a small separate Godot project: **Lumens Launcher.exe** checks the repository's latest GitHub release, and when its tag differs from the installed version it downloads `Lumens-windows.zip`, installs `Lumens.exe` into `%APPDATA%\Lumens Launcher\game` and offers **Play**. Offline, or if GitHub can't be reached, it plays the installed version. Saves stay in the game's own folder, so updates never touch them.
+
+Publishing a new release is all it takes for every launcher to pick it up, as long as the release keeps a `Lumens-windows.zip` asset with `Lumens.exe` inside. Drafts and pre-releases are skipped (GitHub's "latest release" ignores them), so they can be tested before friends get them.
+
+```bash
+godot --headless --path launcher --export-release "Windows Desktop" "../build/launcher/Lumens Launcher.exe"
+
+# Test without touching a real install: update into a scratch folder, print the result, quit
+godot --headless --path launcher -- --check-only --install-dir=/tmp/lumens-test
+```
+
 ## Development tools
 
 ```bash
