@@ -7,13 +7,15 @@ extends RefCounted
 
 signal floating(unit, text: String, kind: String)
 signal log_line(text: String)
-## Detailed combat log entries; category is "heal" or "damage" (log_line carries the other events).
+## Detailed combat log entries; category is "heal", "damage" or "guild" (guildmates' abilities).
+## log_line carries the other events.
 signal combat_log(category: String, text: String)
 signal ended(won: bool)
 
 const LOG_HEAL := "6ee06e"
 const LOG_DAMAGE := "ff6a5a"
 const LOG_SPELL := "ffd86b"
+const LOG_GUILD := "8fd3ff"
 
 const GCD := 1.5
 const FSR := 5.0
@@ -58,6 +60,14 @@ class Unit:
 	var last_attacker = null
 	## Talent, trait and affix effects (see SpecTalents.EFFECTS).
 	var mods: Dictionary = {}
+	## Critical strike and dodge chances (%) from Agility, Intellect and Defense.
+	var crit_base := 12.0
+	var dodge_base := 0.0
+	## Abilities from talents (SpecTalents.abilities_for), each with the time it is "ready" again.
+	var skills: Array = []
+	var skill_gcd := 0.0
+	## Share of their damage dealt by auto attacks; their abilities' base damage makes up the rest.
+	var white := 1.0
 
 	func mod(key: String) -> float:
 		return mods.get(key, 0.0)
@@ -115,6 +125,7 @@ var regen := 1.0
 var fsr_keep := 0.15
 var since_spend := 99.0
 var heal_mult := 1.0
+var smite_mult := 1.0
 var crit := 0.05
 var haste := 0.0
 var casting: Dictionary = {}
@@ -143,6 +154,12 @@ var windfury_chance := WINDFURY_CHANCE
 var group := {}
 const INTERRUPT_COOLDOWN := 8.0
 const OPENER_TIME := 12.0
+## Share of a boss's spells that guildmates' interrupts can stop (a regular enemy's always can).
+const BOSS_INTERRUPTIBLE := 0.35
+## Guildmate abilities used whenever needed, off the global cooldown; the others share SKILL_GCD.
+const REACTIVE := ["defensive", "self_heal", "shield", "feign", "taunt"]
+const SKILL_GCD := 1.5
+const DOT_PERIOD := 3.0
 var soulstone_timer := 0.0
 var innervate_time := 0.0
 var cleanse_timer := 6.0
@@ -173,7 +190,8 @@ func setup(priest_spec: Dictionary, party_specs: Array, enemy_specs: Array, ctx:
 	priest.is_priest = true
 	priest.max_hp = priest_spec["max_hp"]
 	priest.hp = priest.max_hp
-	priest.mit = 1.0
+	priest.mit = priest_spec.get("mit", 1.0)
+	priest.dodge_base = priest_spec.get("dodge", 0.0)
 	priest.aggro = 0.0
 	party.append(priest)
 
@@ -192,6 +210,14 @@ func setup(priest_spec: Dictionary, party_specs: Array, enemy_specs: Array, ctx:
 		m.aggro = s["aggro"]
 		m.utils = s.get("utils", [])
 		m.mods = s.get("mods", {})
+		m.crit_base = s.get("crit", 12.0)
+		m.dodge_base = s.get("dodge", 0.0)
+		for a in s.get("abilities", []):
+			var sk: Dictionary = a.duplicate(true)
+			# Damage abilities come up a little after the pull; reactive ones are ready at once.
+			sk["ready"] = 0.0 if sk["kind"] in REACTIVE else rng.randf_range(0.5, 3.0)
+			m.skills.append(sk)
+		m.white = 1.0 / (1.0 + SpecTalents.damage_share(s.get("abilities", [])))
 		m.attack_timer = rng.randf_range(0.2, 1.5)
 		for ut in m.utils:
 			utils_present[ut] = true
@@ -223,7 +249,8 @@ func setup(priest_spec: Dictionary, party_specs: Array, enemy_specs: Array, ctx:
 	fsr_keep = 0.15 + _tv("meditation") / 100.0
 	mana = max_mana * ctx.get("mana_frac", 1.0)
 	heal_mult = priest_spec["heal_mult"]
-	crit = 0.05 + _tv("holy_specialization") / 100.0
+	crit = priest_spec.get("crit", 0.05) + _tv("holy_specialization") / 100.0
+	smite_mult = priest_spec.get("smite_mult", priest_spec["heal_mult"])
 	soulstone = ctx.get("soulstone", false) and utils_present.has("soulstone")
 	windfury = utils_present.has("windfury")
 	windfury_chance = WINDFURY_CHANCE + group.get("windfury_bonus", 0.0) / 100.0
@@ -259,21 +286,25 @@ func _group(key: String) -> float:
 const APPLIED_MODS := ["hp", "dps", "mit", "aggro"]
 
 
-## A guildmate's combat numbers from their spec, grade x gear power, and effects.
-static func member_spec(mname: String, spec_id: String, core_pm: float, mods: Dictionary, lvl: int,
-		dmg_buff := 0.0, hp_buff := 0.0) -> Dictionary:
+## A guildmate's combat numbers from their spec, grade, stats (Stats.compute) and effects.
+## Damage follows Attack Power or Spell Damage, health follows Stamina, damage taken follows Armor,
+## crit and dodge come from Agility/Intellect and Defense.
+static func member_spec(mname: String, spec_id: String, grade: float, stats: Dictionary, mods: Dictionary,
+		abilities: Array, lvl: int, dmg_buff := 0.0, hp_buff := 0.0) -> Dictionary:
 	var sp: Dictionary = ClassData.SPECS[spec_id]
 	var rest := {}
 	for k in mods:
-		if not (k in APPLIED_MODS):
+		var key := String(k)
+		if not (key in APPLIED_MODS) and not key.contains(".") and not key.ends_with("%") and key != "ability":
 			rest[k] = mods[k]
 	return {
 		"name": mname, "class_id": sp["class"], "spec_id": spec_id, "role": sp["role"],
-		"max_hp": sp["hp"] * Balance.scale(lvl) * sqrt(core_pm) * (1.0 + hp_buff) * (1.0 + mods.get("hp", 0.0) / 100.0),
-		"dps": sp["dps"] * core_pm * (1.0 + dmg_buff) * (1.0 + mods.get("dps", 0.0) / 100.0),
-		"mit": clampf(sp["mit"] * (1.0 - mods.get("mit", 0.0) / 100.0), 0.3, 1.2),
+		"max_hp": sp["hp"] * Balance.scale(lvl) * sqrt(grade) * stats["health_mult"] * (1.0 + hp_buff) * (1.0 + mods.get("hp", 0.0) / 100.0),
+		"dps": sp["dps"] * grade * stats["offense"] * (1.0 + dmg_buff) * (1.0 + mods.get("dps", 0.0) / 100.0),
+		"mit": clampf(sp["mit"] * Stats.armor_factor(sp["class"], lvl, stats["armor"]) * (1.0 - mods.get("mit", 0.0) / 100.0), 0.25, 1.3),
 		"aggro": clampf(sp["aggro"] + mods.get("aggro", 0.0) / 100.0, 0.0, 0.98),
-		"utils": sp["util"], "pm": core_pm, "mods": rest,
+		"crit": stats["crit_chance"], "dodge": stats["dodge"],
+		"utils": sp["util"], "pm": grade * stats["offense"], "mods": rest, "abilities": abilities,
 	}
 
 
@@ -292,7 +323,9 @@ func _spawn(e: Dictionary) -> Unit:
 	en.enrage_at = e.get("enrage_at", 0.0)
 	en.berserk = e.get("berserk", 0.0)
 	for a in e.get("abilities", []):
-		en.abilities.append(a.duplicate(true))
+		var ab: Dictionary = a.duplicate(true)
+		ab["interruptible"] = not en.is_boss or rng.randf() < BOSS_INTERRUPTIBLE
+		en.abilities.append(ab)
 	en.retarget_timer = rng.randf_range(4.0, 7.0)
 	enemies.append(en)
 	en.target = _pick_tank()
@@ -363,6 +396,16 @@ func _mult(unit: Unit, key: String) -> float:
 	for au in unit.auras:
 		m *= au.get(key, 1.0)
 	return m
+
+
+## Debuffs of one kind on an enemy don't stack: the one furthest from 1.0 counts.
+func _strongest(unit: Unit, key: String) -> float:
+	var best := 1.0
+	for au in unit.auras:
+		var v: float = au.get(key, 1.0)
+		if absf(v - 1.0) > absf(best - 1.0):
+			best = v
+	return best
 
 
 func cooldown_left(id: String) -> float:
@@ -579,7 +622,7 @@ func _resolve(id: String, target) -> void:
 		"smite":
 			var e: Unit = target if target != null and target.alive else _enemy_target()
 			if e != null:
-				var dmg: float = s["amount"] * u * heal_mult * (1.0 + _tv("twin_disciplines") / 100.0) * rng.randf_range(0.9, 1.1)
+				var dmg: float = s["amount"] * u * smite_mult * (1.0 + _tv("twin_disciplines") / 100.0) * rng.randf_range(0.9, 1.1)
 				var smite_crit := rng.randf() < crit + (0.25 if _focus_crit else 0.0)
 				if smite_crit:
 					dmg *= 1.5
@@ -718,11 +761,12 @@ func _heal_other(target: Unit, amount: float) -> void:
 
 # ---------------------------------------------------------------- damage
 
-## Damage to an enemy. Spell damage from the priest (label set) shows on the nameplate and in the log.
+## Damage to an enemy. Spell damage from the priest (label set) shows on the nameplate and in the log;
+## guildmates' abilities (label set) only go to the log, to keep the nameplates readable.
 func _damage_enemy(e: Unit, amount: float, source: Unit, label := "", is_crit := false) -> void:
 	if not e.alive:
 		return
-	amount *= 1.0 + _group("enemy_vuln") / 100.0
+	amount *= (1.0 + _group("enemy_vuln") / 100.0) * _strongest(e, "dmg_taken")
 	e.hp -= amount
 	if source != null:
 		source.damage_done += amount
@@ -730,6 +774,9 @@ func _damage_enemy(e: Unit, amount: float, source: Unit, label := "", is_crit :=
 		floating.emit(e, ("-%d!" if is_crit else "-%d") % int(amount), "spell_crit" if is_crit else "spell_damage")
 		combat_log.emit("damage", "Your [color=#%s]%s[/color] hits %s for [color=#%s]%d[/color]%s." % [LOG_SPELL, label, e.name,
 			LOG_SPELL, int(amount), " (critical)" if is_crit else ""])
+	elif source != null and label != "":
+		combat_log.emit("guild", "%s's [color=#%s]%s[/color] hits %s for [color=#%s]%d[/color]%s." % [source.name, LOG_GUILD, label,
+			e.name, LOG_GUILD, int(amount), " (critical)" if is_crit else ""])
 	if e.hp <= 0.0:
 		e.hp = 0.0
 		e.alive = false
@@ -745,12 +792,12 @@ func damage(target: Unit, amount: float, attacker: Unit, label := "") -> void:
 	if target.spirit > 0.0:
 		return
 	# Plain melee swings (no label) can be dodged.
-	if label == "" and attacker != null and attacker.is_enemy and target.mod("dodge") > 0.0 and rng.randf() * 100.0 < target.mod("dodge"):
+	if label == "" and attacker != null and attacker.is_enemy and rng.randf() * 100.0 < target.dodge_base + target.mod("dodge"):
 		floating.emit(target, "Dodge", "info")
 		return
 	amount *= _mult(target, "dmg_taken") * target.mit
 	if attacker != null and attacker.is_enemy:
-		amount *= 1.0 - _group("enemy_dmg") / 100.0
+		amount *= (1.0 - _group("enemy_dmg") / 100.0) * _strongest(attacker, "dmg_done")
 	if attacker != null and attacker.enraged:
 		amount *= 1.4
 	if attacker != null and attacker.berserk > 0.0 and time > attacker.berserk:
@@ -810,10 +857,6 @@ func _on_damaged(m: Unit, total: float) -> void:
 	var f := m.hp / m.max_hp
 	if m.is_priest:
 		return
-	if f < 0.25 and "shield_wall" in m.utils and not m.used.has("shield_wall"):
-		m.used["shield_wall"] = true
-		m.auras.append({"id": "shield_wall", "name": "Shield Wall", "remaining": 10.0, "dmg_taken": 0.4, "icon": "shield_wall"})
-		log_line.emit("%s uses Shield Wall!" % m.name)
 	if f < 0.3 and "barkskin" in m.utils and not m.used.has("barkskin"):
 		m.used["barkskin"] = true
 		m.auras.append({"id": "barkskin", "name": "Barkskin", "remaining": 12.0, "dmg_taken": 0.7, "icon": "barkskin"})
@@ -971,6 +1014,15 @@ func _tick_auras(unit: Unit, dt: float) -> void:
 						_log_heal(au["name"], unit, amt, eff, false)
 					else:
 						_heal_other(unit, amt)
+				elif au.has("pdot"):
+					# A guildmate's damage over time on an enemy
+					var amt: float = au["pdot"] * rng.randf_range(0.95, 1.05)
+					var src: Unit = au.get("source")
+					_damage_enemy(unit, amt, src)
+					if au.get("leech", 0.0) > 0.0 and src != null and src.alive:
+						_heal_other(src, amt * au["leech"] / 100.0)
+					if not unit.alive:
+						return
 				elif au.has("dot"):
 					var src = au.get("source")
 					damage(unit, au["dot"], src, au["name"] if src != null and src.alive else "")
@@ -991,27 +1043,20 @@ func _tick_party(dt: float) -> void:
 	for m in party:
 		if not m.alive or m.is_priest or m.cc():
 			continue
+		_tick_skills(m, targets, dt)
+		targets = alive_enemies()
+		if targets.is_empty():
+			return
 		m.attack_timer -= dt
 		if m.attack_timer <= 0.0:
 			# Haste makes hits come sooner; each hit still carries a full interval's worth of damage.
 			var interval := rng.randf_range(1.6, 2.4)
-			m.attack_timer += interval / maxf(0.5, 1.0 + m.mod("haste") / 100.0)
+			m.attack_timer += interval / maxf(0.5, 1.0 + (m.mod("haste") + _aura_sum(m, "haste")) / 100.0)
 			var e := _attack_target(m, targets)
 			if e != null:
-				var dmg: float = m.dps * u * interval * _mult(m, "dps_mult") * rng.randf_range(0.85, 1.15)
-				if "mortal_strike" in m.utils and e.is_boss:
-					dmg *= 1.06
-				var bonus := 0.0
-				if time < OPENER_TIME:
-					bonus += m.mod("opener")
-				if e.is_boss:
-					bonus += m.mod("boss")
-				if targets.size() >= 3:
-					bonus += m.mod("aoe")
-				if e.frac() < 0.25:
-					bonus += m.mod("execute")
-				dmg *= maxf(0.1, 1.0 + bonus / 100.0)
-				if rng.randf() * 100.0 < 12.0 + m.mod("crit") + _group("party_crit"):
+				var dmg: float = m.dps * m.white * u * interval * _mult(m, "dps_mult") * rng.randf_range(0.85, 1.15)
+				dmg *= _hit_mult(m, e, targets.size())
+				if rng.randf() * 100.0 < _crit_chance(m):
 					dmg *= 2.0 + m.mod("crit_dmg") / 100.0
 				if _windfury_proc():
 					dmg *= 2.0
@@ -1056,6 +1101,254 @@ func _attack_target(m: Unit, targets: Array) -> Unit:
 	return targets[0]
 
 
+func _aura_sum(unit: Unit, key: String) -> float:
+	var s := 0.0
+	for au in unit.auras:
+		s += au.get(key, 0.0)
+	return s
+
+
+## Damage multiplier for one hit from situational effects (opener, bosses, packs, low targets).
+func _hit_mult(m: Unit, e: Unit, enemy_count: int) -> float:
+	var bonus := 0.0
+	if time < OPENER_TIME:
+		bonus += m.mod("opener")
+	if e.is_boss:
+		bonus += m.mod("boss")
+	if enemy_count >= 3:
+		bonus += m.mod("aoe")
+	if enemy_count >= 2:
+		bonus += _aura_sum(m, "aoe_pct")
+	if e.frac() < 0.25:
+		bonus += m.mod("execute")
+	return maxf(0.1, 1.0 + bonus / 100.0)
+
+
+func _crit_chance(m: Unit) -> float:
+	return m.crit_base + m.mod("crit") + _group("party_crit") + _aura_sum(m, "crit_bonus")
+
+
+## One second of a guildmate's damage, the unit their abilities' damage is measured in. Like auto
+## attacks it is scaled by `white`, so that at base values abilities split damage rather than add to it.
+func _second(m: Unit) -> float:
+	return m.dps * m.white * u * _mult(m, "dps_mult")
+
+
+# ---------------------------------------------------------------- guildmate abilities
+
+## Uses at most one damage ability per global cooldown (when it's off cooldown and useful),
+## and reactive ones (defensives, heals, taunts) whenever they're needed.
+func _tick_skills(m: Unit, targets: Array, dt: float) -> void:
+	m.skill_gcd -= dt
+	for sk in m.skills:
+		if sk["ready"] > time or sk["kind"] == "interrupt":
+			continue
+		var reactive: bool = sk["kind"] in REACTIVE
+		if not reactive and m.skill_gcd > 0.0:
+			continue
+		if _use_skill(m, sk, targets):
+			sk["ready"] = time + sk["cd"]
+			if not reactive:
+				m.skill_gcd = SKILL_GCD
+				return
+
+
+func _use_skill(m: Unit, sk: Dictionary, targets: Array) -> bool:
+	var n := targets.size()
+	match sk["kind"]:
+		"strike":
+			var e := _attack_target(m, targets)
+			if e == null:
+				return false
+			_skill_hit(m, sk, e, n)
+		"execute":
+			var e := _attack_target(m, targets)
+			if e == null or e.frac() >= sk["at"]:
+				e = null
+				for x in targets:
+					if x.frac() < sk["at"]:
+						e = x
+						break
+			if e == null:
+				return false
+			_skill_hit(m, sk, e, n)
+		"dot":
+			var e := _attack_target(m, targets)
+			# Not worth it on an enemy about to die.
+			if e == null or (not e.is_boss and e.frac() < 0.15):
+				return false
+			var aura := {"id": "dot_%s_%d" % [sk["id"], m.uid], "name": sk["name"], "remaining": sk["dur"],
+				"period": DOT_PERIOD, "tick_timer": DOT_PERIOD, "source": m, "harmful": true, "icon": sk["id"],
+				"kind": "guild", "dispel": "", "leech": sk.get("leech", 0.0),
+				"pdot": _second(m) * sk["coef"] * _hit_mult(m, e, n) * DOT_PERIOD / sk["dur"],
+				"desc": "%s's %s: damage every %d sec." % [m.name, sk["name"], int(DOT_PERIOD)]}
+			_debuff_fields(aura, sk.get("debuff", {}))
+			e.remove(aura["id"])
+			e.auras.append(aura)
+			combat_log.emit("guild", "%s's [color=#%s]%s[/color] afflicts %s." % [m.name, LOG_GUILD, sk["name"], e.name])
+		"aoe":
+			# Against a lone enemy, only to keep the ability's debuff up (Thunder Clap on a boss).
+			if n < 2:
+				var cur: Dictionary = targets[0].get_aura("debuff_" + sk["id"])
+				if not sk.has("debuff") or (not cur.is_empty() and cur["remaining"] > 2.0):
+					return false
+			var hit := 0
+			for e in targets.duplicate():
+				if hit >= sk.get("max", 6):
+					break
+				_skill_hit(m, sk, e, n)
+				hit += 1
+		"burst":
+			var aura := {"id": "skill_" + sk["id"], "name": sk["name"], "remaining": sk["dur"], "icon": sk["id"],
+				"dps_mult": 1.0 + sk.get("pct", 0.0) / 100.0, "haste": sk.get("haste", 0.0),
+				"crit_bonus": sk.get("crit", 0.0), "aoe_pct": sk.get("aoe", 0.0), "desc": SpecTalents.burst_effects(sk) + "."}
+			m.remove(aura["id"])
+			m.auras.append(aura)
+			_announce(m, sk)
+		"debuff", "debuff_all":
+			var pool: Array = targets if sk["kind"] == "debuff_all" else [_attack_target(m, targets)]
+			var applied := false
+			for e in pool:
+				if e == null:
+					continue
+				var cur: Dictionary = e.get_aura("debuff_" + sk["id"])
+				if not cur.is_empty() and cur["remaining"] > 3.0:
+					continue
+				_apply_debuff(m, sk, e, sk["dur"])
+				applied = true
+			if not applied:
+				return false
+			_announce(m, sk)
+		"stun":
+			var e := _stun_target(targets)
+			if e == null:
+				return false
+			_stun(m, sk, e)
+		"stun_all":
+			var pool := targets.filter(func(x): return not x.is_boss and not x.cc())
+			if pool.size() < 2:
+				return false
+			for e in pool:
+				_stun(m, sk, e)
+		"taunt":
+			for e in targets:
+				var t = e.target
+				if t != null and t != m and t.alive and t.role != "tank":
+					e.target = m
+					floating.emit(e, sk["name"], "info")
+					combat_log.emit("guild", "%s [color=#%s]%s[/color]s %s off %s." % [m.name, LOG_GUILD, sk["name"], e.name,
+						"you" if t.is_priest else t.name])
+					return true
+			return false
+		"defensive":
+			if m.frac() >= sk["at"]:
+				return false
+			m.auras.append({"id": "skill_" + sk["id"], "name": sk["name"], "remaining": sk["dur"], "icon": sk["id"],
+				"dmg_taken": maxf(0.0, 1.0 - sk["pct"] / 100.0), "desc": "Takes %d%% less damage." % int(sk["pct"])})
+			_announce(m, sk)
+		"self_heal":
+			if m.frac() >= sk["at"]:
+				return false
+			_heal_other(m, m.max_hp * sk["pct"] / 100.0)
+			_announce(m, sk)
+		"shield":
+			if m.has("skill_" + sk["id"]):
+				return false
+			m.auras.append({"id": "skill_" + sk["id"], "name": sk["name"], "remaining": 30.0, "icon": sk["id"],
+				"absorb": m.max_hp * sk["pct"] / 100.0})
+		"feign":
+			if m.role == "tank" or m.frac() >= sk["at"]:
+				return false
+			var chased := targets.filter(func(x): return x.target == m)
+			if chased.is_empty():
+				return false
+			for e in chased:
+				var other := _pick_tank()
+				e.target = other if other != m else null
+			_announce(m, sk)
+		_:
+			return false
+	return true
+
+
+## A strike, execute or area hit: crits, Windfury, leech and the ability's debuff.
+func _skill_hit(m: Unit, sk: Dictionary, e: Unit, enemy_count: int) -> void:
+	var dmg: float = _second(m) * sk["coef"] * rng.randf_range(0.9, 1.1) * _hit_mult(m, e, enemy_count)
+	var is_crit := rng.randf() * 100.0 < _crit_chance(m)
+	if is_crit:
+		dmg *= 2.0 + m.mod("crit_dmg") / 100.0
+	if _windfury_proc():
+		dmg *= 2.0
+	_damage_enemy(e, dmg, m, sk["name"], is_crit)
+	if sk.has("leech"):
+		_heal_other(m, dmg * sk["leech"] / 100.0)
+	if sk.has("debuff") and e.alive:
+		_apply_debuff(m, sk, e, sk["debuff"].get("dur", 10.0))
+
+
+func _apply_debuff(m: Unit, sk: Dictionary, e: Unit, dur: float) -> void:
+	var aura := {"id": "debuff_" + sk["id"], "name": sk["name"], "remaining": dur, "harmful": true,
+		"icon": sk["id"], "kind": "guild", "dispel": "", "source": m}
+	_debuff_fields(aura, sk.get("debuff", {}))
+	# The same debuff from two guildmates doesn't stack: the newest replaces the other.
+	e.remove(aura["id"])
+	e.auras.append(aura)
+
+
+func _debuff_fields(aura: Dictionary, d: Dictionary) -> void:
+	var desc := []
+	if d.has("vuln"):
+		aura["dmg_taken"] = 1.0 + d["vuln"] / 100.0
+		desc.append("Takes %s%% more damage." % SpecTalents.number(d["vuln"]))
+	if d.has("weaken"):
+		aura["dmg_done"] = 1.0 - d["weaken"] / 100.0
+		desc.append("Deals %s%% less damage." % SpecTalents.number(d["weaken"]))
+	if d.has("anti_heal"):
+		aura["heal_taken"] = 1.0 - d["anti_heal"] / 100.0
+		desc.append("Healing received reduced by %d%%." % int(d["anti_heal"]))
+	if not desc.is_empty():
+		aura["desc"] = " ".join(desc)
+
+
+## The best enemy to stun: one casting, then one attacking someone other than a tank. Bosses are immune.
+func _stun_target(targets: Array) -> Unit:
+	var best: Unit = null
+	var best_score := 0
+	for e in targets:
+		if e.is_boss or e.cc():
+			continue
+		var score := 1
+		if not e.cast.is_empty():
+			score = 3
+		elif e.target != null and e.target.role != "tank":
+			score = 2
+		if score > best_score:
+			best = e
+			best_score = score
+	return best
+
+
+func _stun(m: Unit, sk: Dictionary, e: Unit) -> void:
+	e.remove("stun")
+	e.auras.append({"id": "stun", "name": sk["name"], "remaining": sk["dur"], "cc": true, "harmful": true,
+		"icon": sk["id"], "kind": "guild", "dispel": "", "desc": "Stunned."})
+	if not e.cast.is_empty():
+		e.cast = {}
+	floating.emit(e, "Stunned", "info")
+	combat_log.emit("guild", "%s's [color=#%s]%s[/color] stuns %s." % [m.name, LOG_GUILD, sk["name"], e.name])
+
+
+func _announce(m: Unit, sk: Dictionary) -> void:
+	combat_log.emit("guild", "%s uses [color=#%s]%s[/color]." % [m.name, LOG_GUILD, sk["name"]])
+
+
+func _ready_skill(m: Unit, kind: String) -> Dictionary:
+	for sk in m.skills:
+		if sk["kind"] == kind and sk["ready"] <= time:
+			return sk
+	return {}
+
+
 func _tick_enemies(dt: float) -> void:
 	for e in enemies.duplicate():
 		if not e.alive:
@@ -1073,7 +1366,7 @@ func _tick_enemies(dt: float) -> void:
 		if e.retarget_timer <= 0.0:
 			e.retarget_timer = rng.randf_range(4.0, 7.0)
 			_retarget(e)
-		if e.target == null:
+		if e.target == null or e.cc():
 			continue
 		# Casting an ability
 		if not e.cast.is_empty():
@@ -1106,8 +1399,22 @@ func _tick_enemies(dt: float) -> void:
 				break
 
 
-## A guildmate with an interrupt may stop an enemy cast before it starts (8 sec cooldown each).
+## A guildmate stops an enemy cast before it starts: with an interrupt ability that's ready (if the
+## spell can be interrupted), or by chance with an interrupt effect (8 sec cooldown each).
 func _try_interrupt(e: Unit, ab: Dictionary) -> bool:
+	if ab.get("interruptible", true):
+		for m in party:
+			if not m.alive or m.is_priest or m.cc():
+				continue
+			var sk := _ready_skill(m, "interrupt")
+			if sk.is_empty():
+				continue
+			sk["ready"] = time + sk["cd"]
+			if sk.has("coef"):
+				_skill_hit(m, sk, e, alive_enemies().size())
+			floating.emit(e, "Interrupted", "info")
+			log_line.emit("[color=#ffd86b]%s[/color] interrupts %s with %s!" % [m.name, _spell_of(e, ab), sk["name"]])
+			return true
 	for m in party:
 		if not m.alive or m.is_priest or m.cc() or m.mod("interrupt") <= 0.0:
 			continue
@@ -1116,9 +1423,15 @@ func _try_interrupt(e: Unit, ab: Dictionary) -> bool:
 		if rng.randf() * 100.0 < m.mod("interrupt"):
 			m.used["interrupt_ready"] = time + INTERRUPT_COOLDOWN
 			floating.emit(e, "Interrupted", "info")
-			log_line.emit("[color=#ffd86b]%s[/color] interrupts %s's %s!" % [m.name, e.name, ab["name"]])
+			log_line.emit("[color=#ffd86b]%s[/color] interrupts %s!" % [m.name, _spell_of(e, ab)])
 			return true
 	return false
+
+
+## "the Defias Pillager's Fireball", or just "Lucifron's Curse" when the spell already names its caster.
+func _spell_of(e: Unit, ab: Dictionary) -> String:
+	var nm: String = ab["name"]
+	return nm if nm.begins_with(e.name) else "%s's %s" % [e.name, nm]
 
 
 func _retarget(e: Unit) -> void:
@@ -1218,7 +1531,7 @@ func _use_ability(e: Unit, ab: Dictionary, tgt) -> void:
 			log_line.emit("%s's %s burns your mana." % [e.name, nm])
 		"heal":
 			if tgt != null and tgt.alive:
-				var h: float = tgt.max_hp * ab["amount"] * (1.0 - _group("anti_heal") / 100.0)
+				var h: float = tgt.max_hp * ab["amount"] * (1.0 - _group("anti_heal") / 100.0) * _mult(tgt, "heal_taken")
 				tgt.hp = minf(tgt.max_hp, tgt.hp + h)
 				log_line.emit("%s heals %s with %s." % [e.name, tgt.name, nm])
 		"summon":

@@ -6,6 +6,8 @@ var main
 var shots := false
 var shot_dir := ""
 var failures := 0
+## Guildmate ability lines in the combat log since the counter was last reset.
+var guild_lines := 0
 
 
 func run() -> void:
@@ -67,6 +69,10 @@ func run() -> void:
 	_check(SpecTalents.spent(tm["talents"]) == 1 and not tm["auto_talents"], "a guildmate talent can be learned by hand")
 	Game.auto_member_talents(tm)
 	_check(SpecTalents.spent(tm["talents"]) == SpecTalents.points_at(24), "recommended build refills the tree")
+	_check(Game.members().all(func(m): return not Game.member_abilities(m).is_empty()), "every guildmate has abilities from talents")
+	var st := Game.member_stats(Game.members()[2])
+	_check(st["str"] > 0.0 and st["sta"] > 0.0 and st["armor"] > 0.0 and st["attack_power"] > 0.0,
+		"guildmate stats are computed (Str %d, Sta %d, AP %d, armor %d)" % [st["str"], st["sta"], st["attack_power"], st["armor"]])
 
 	# Character sheet, both tabs, for a guildmate
 	main.show_hub("character")
@@ -108,6 +114,7 @@ func run() -> void:
 	_check(Game.hall() == 5, "upgraded the hall")
 	for i in 6:
 		Game._bank_add(Items.random_item(22, "rare", Game.rng))
+	_check(Game.data["bank"].all(func(it): return not Stats.item_stats(it).is_empty()), "every item carries stats")
 	Game.auto_equip_all()
 	Game.sell_obsolete()
 	main.show_hub("guild")
@@ -121,7 +128,9 @@ func run() -> void:
 	var run_act := Activities.make_dungeon(d, Game.level(), Game.rng)
 	Game.start_run(run_act, _auto(run_act))
 	main.start_combat()
+	guild_lines = 0
 	await _play_run("06_dungeon")
+	_check(guild_lines > 0, "guildmates used their abilities (%d combat log lines)" % guild_lines)
 	var dloot: Array = Game.data["bank"].filter(func(it): return it.get("guaranteed", false) and it["profile"] == run_act["guaranteed"] and it["ilvl"] == d["ilvl"])
 	_check(not dloot.is_empty(), "dungeon gave its guaranteed %s piece" % run_act["guaranteed"])
 
@@ -172,8 +181,15 @@ func run() -> void:
 	Game.members()[2]["class"] = "priest"
 	var priest_name: String = Game.members()[2]["name"]
 	Game.data["quests"][0]["rewards"] = {"xp": 10, "gold": 10, "items": []}
+	var old: Dictionary = Game.members()[0]
+	old["talent_version"] = 1
+	old["talents"] = {"old_talent": 3}
+	old["auto_talents"] = false
 	Game.save()
 	_check(Game.load_game(), "old save loads")
+	old = Game.members()[0]
+	_check(old["talent_version"] == Game.TALENT_VERSION and not old["talents"].has("old_talent") \
+		and SpecTalents.spent(old["talents"]) == SpecTalents.points_at(Game.level()), "old guildmate talents were rebuilt in the new trees")
 	_check(Game.members()[1]["spec"] == "shaman_elemental", "restoration shaman retrained as elemental")
 	_check(Game.members().filter(func(m): return m["name"] == priest_name).is_empty(), "guildmate priest left the guild")
 	_check(Game.data["quests"].all(func(q): return q["rewards"].has("gold_min")), "old quests were replaced")
@@ -209,6 +225,8 @@ func _play_run(tag: String) -> void:
 		if guard == 1 and tag == "04_quest":
 			_check_pause_toggle(cs)
 		var steps := 0
+		if not cs.eng.combat_log.is_connected(_count_log):
+			cs.eng.combat_log.connect(_count_log)
 		while not cs.eng.over and steps < 9000:
 			_bot(cs.eng)
 			cs.eng.tick(0.1)
@@ -263,6 +281,11 @@ func _play_run(tag: String) -> void:
 	_check(false, "run %s finished within the retry budget" % tag)
 	Game.finish_run(false)
 	main.show_hub()
+
+
+func _count_log(category: String, _text: String) -> void:
+	if category == "guild":
+		guild_lines += 1
 
 
 ## Space toggles the pause on press; releasing it changes nothing, and no button can steal the key.

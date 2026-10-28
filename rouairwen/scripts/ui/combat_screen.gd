@@ -31,7 +31,7 @@ var bar_row: HBoxContainer
 var log_box: RichTextLabel
 const LOG_MAX := 300
 var log_entries: Array = []
-var log_filter := {"heal": true, "damage": true, "event": true}
+var log_filter := {"heal": true, "damage": true, "guild": true, "event": true}
 var error_label: Label
 var center_label: Label
 var pause_dim: ColorRect
@@ -127,7 +127,7 @@ func _ready() -> void:
 	var lt := Style.label("Combat Log", 13, Style.C["gold"], true)
 	lt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	logh.add_child(lt)
-	for cat in [["heal", "Heals"], ["damage", "Damage"], ["event", "Events"]]:
+	for cat in [["heal", "Heals"], ["damage", "Damage"], ["guild", "Guild"], ["event", "Events"]]:
 		var cb := CheckBox.new()
 		cb.text = cat[1]
 		cb.button_pressed = log_filter[cat[0]]

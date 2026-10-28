@@ -26,11 +26,11 @@ const CLASSES := {
 ## dps and hp are in level units; mit multiplies damage taken; aggro is how well they hold enemies.
 const SPECS := {
 	"warrior_arms": {"class": "warrior", "name": "Arms", "role": "melee", "stat": "physical",
-		"dps": 12.0, "hp": 150, "mit": 0.85, "aggro": 0.55, "util": ["battle_shout", "mortal_strike"]},
+		"dps": 12.0, "hp": 150, "mit": 0.85, "aggro": 0.55, "util": ["battle_shout"]},
 	"warrior_fury": {"class": "warrior", "name": "Fury", "role": "melee", "stat": "physical",
 		"dps": 12.8, "hp": 150, "mit": 0.85, "aggro": 0.6, "util": ["battle_shout"]},
 	"warrior_protection": {"class": "warrior", "name": "Protection", "role": "tank", "stat": "tank",
-		"dps": 5.5, "hp": 215, "mit": 0.6, "aggro": 0.93, "util": ["battle_shout", "shield_wall"]},
+		"dps": 5.5, "hp": 215, "mit": 0.6, "aggro": 0.93, "util": ["battle_shout"]},
 	"shaman_elemental": {"class": "shaman", "name": "Elemental", "role": "ranged", "stat": "spell",
 		"dps": 12.0, "hp": 118, "mit": 0.95, "aggro": 0.0, "util": ["totems", "poison_cleansing"]},
 	"shaman_enhancement": {"class": "shaman", "name": "Enhancement", "role": "melee", "stat": "physical",
@@ -69,8 +69,6 @@ const SPECS := {
 
 const UTILS := {
 	"battle_shout": {"name": "Battle Shout", "desc": "Melee guildmates deal 5% more damage."},
-	"mortal_strike": {"name": "Mortal Strike", "desc": "Hits harder against bosses (+6% damage to bosses)."},
-	"shield_wall": {"name": "Shield Wall", "desc": "Once per fight below 25% health: takes 60% less damage for 10s."},
 	"totems": {"name": "Mana Spring Totem", "desc": "Your mana regeneration is increased by 10%."},
 	"windfury": {"name": "Windfury Totem", "desc": "Every hit by an ally (your Smite included) has a 5% chance to deal double damage."},
 	"poison_cleansing": {"name": "Poison Cleansing Totem", "desc": "Removes a poison from the party every 6s."},

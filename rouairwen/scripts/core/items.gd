@@ -21,13 +21,6 @@ const QUALITY_NAMES := {"poor": "Poor", "common": "Common", "uncommon": "Uncommo
 const PROFILES := ["healing", "spell", "physical", "tank"]
 const PROFILE_NAMES := {"healing": "Healer", "spell": "Caster", "physical": "Physical", "tank": "Tank"}
 
-## How well an item profile (row) suits a wearer's stat profile (column).
-const MATCH := {
-	"healing": {"healing": 1.0, "spell": 0.55, "physical": 0.15, "tank": 0.15},
-	"spell": {"healing": 0.6, "spell": 1.0, "physical": 0.15, "tank": 0.15},
-	"physical": {"healing": 0.15, "spell": 0.15, "physical": 1.0, "tank": 0.7},
-	"tank": {"healing": 0.15, "spell": 0.15, "physical": 0.55, "tank": 1.0},
-}
 
 const NOUNS := {
 	"plate": {"head": "Helm", "shoulders": "Pauldrons", "chest": "Breastplate", "wrist": "Bracers", "hands": "Gauntlets", "waist": "Girdle", "legs": "Legplates", "feet": "Sabatons"},
@@ -206,65 +199,9 @@ static func can_use(item: Dictionary, class_id: String) -> bool:
 	return true
 
 
-## The stat bonus an item gives a wearer of a level, class and stat profile.
-static func bonus(item: Dictionary, level: int, class_id: String, stat: String) -> float:
-	if item.is_empty():
-		return 0.0
-	var profile: String = item.get("profile", "")
-	var m := 1.0
-	if profile.begins_with("class:"):
-		m = 1.08 if profile.substr(6) == class_id else 0.0
-	else:
-		m = MATCH.get(profile, {}).get(stat, 0.3)
-	var rel := Balance.item_scale(item["ilvl"]) / Balance.scale(level)
-	return SLOT_WEIGHT[item["slot"]] * QUALITY_MULT[item["quality"]] * rel * m
-
-
-static func gear_bonus(gear: Dictionary, level: int, class_id: String, stat: String) -> float:
-	var total := 0.0
-	for slot in gear:
-		total += bonus(gear[slot], level, class_id, stat)
-	return total
-
-
 static func sell_price(item: Dictionary) -> int:
 	var base: float = Balance.income(mini(item["ilvl"], 60)) * SLOT_WEIGHT[item["slot"]] * 12.0
 	return maxi(1, int(round(base * QUALITY_MULT[item["quality"]] * QUALITY_MULT[item["quality"]])))
-
-
-## Tooltip stat lines, generated from the item's budget so they look like real Classic stats.
-static func stat_lines(item: Dictionary) -> Array:
-	var budget: float = Balance.item_scale(item["ilvl"]) * QUALITY_MULT[item["quality"]] * SLOT_WEIGHT[item["slot"]] * 26.0
-	var profile: String = item["profile"]
-	if profile.begins_with("class:"):
-		var cid := profile.substr(6)
-		var st: String = "healing" if cid == "priest" else ("tank" if cid == "warrior" else ("spell" if cid in ["mage", "warlock"] else "physical"))
-		if cid in ["shaman", "druid"]:
-			st = "healing"
-		profile = st
-	var lines := []
-	var b := maxf(budget, 1.0)
-	match profile:
-		"healing":
-			lines.append("+%d Intellect" % maxi(1, int(b * 0.3)))
-			lines.append("+%d Stamina" % maxi(1, int(b * 0.18)))
-			lines.append("+%d Spirit" % maxi(1, int(b * 0.2)))
-			lines.append("[color=#1eff00]Equip: Increases healing done by spells and effects by up to %d.[/color]" % maxi(1, int(b * 0.65)))
-		"spell":
-			lines.append("+%d Intellect" % maxi(1, int(b * 0.3)))
-			lines.append("+%d Stamina" % maxi(1, int(b * 0.25)))
-			lines.append("[color=#1eff00]Equip: Increases damage and healing done by magical spells and effects by up to %d.[/color]" % maxi(1, int(b * 0.4)))
-		"physical":
-			var main := "Agility" if item["type"] in ["leather", "bow", "gun", "dagger"] else "Strength"
-			lines.append("+%d %s" % [maxi(1, int(b * 0.45)), main])
-			lines.append("+%d Stamina" % maxi(1, int(b * 0.3)))
-			if b > 12:
-				lines.append("[color=#1eff00]Equip: Improves your chance to get a critical strike by 1%.[/color]")
-		"tank":
-			lines.append("+%d Stamina" % maxi(1, int(b * 0.45)))
-			lines.append("+%d Strength" % maxi(1, int(b * 0.2)))
-			lines.append("[color=#1eff00]Equip: Increased Defense +%d.[/color]" % maxi(1, int(b * 0.18)))
-	return lines
 
 
 static func armor_value(item: Dictionary) -> int:
@@ -295,7 +232,7 @@ static func tooltip_bb(item: Dictionary, compare_text := "") -> String:
 	var av := armor_value(item)
 	if av > 0:
 		s += "%d Armor\n" % av
-	for l in stat_lines(item):
+	for l in Stats.lines(item):
 		s += l + "\n"
 	var profile: String = item["profile"]
 	if profile.begins_with("class:"):

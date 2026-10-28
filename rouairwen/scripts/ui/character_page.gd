@@ -3,28 +3,26 @@ extends VBoxContainer
 ## Character sheet: stats (hover a stat's name for what it means), effects, gear, and talents,
 ## for Thyeste or any guildmate picked from the dropdown.
 
-const CELL := 40
-
 const STAT_HELP := {
-	"Health": "How much damage they can take before dying.",
-	"Mana": "Thyeste's pool for casting spells. Every heal costs mana.",
-	"Mana regeneration": "Mana regained per second. While casting (within 5 sec of spending mana) only a part of it continues; Meditation raises that part.",
-	"Healing bonus": "How much more your heals restore than base, from gear, talents and elixirs.",
-	"Critical heal chance": "Chance for a heal to restore 50% more. Holy Specialization raises it.",
+	"Stamina": "Raises maximum health.",
+	"Spirit": "Raises Thyeste's mana regeneration. Guildmates don't use it in fights.",
+	"Health": "How much damage they can take before dying. Grows with Stamina.",
+	"Mana": "Thyeste's pool for casting spells. Every heal costs mana. Grows with Intellect.",
+	"Mana regeneration": "Mana regained per second, from Spirit. While casting (within 5 sec of spending mana) only a part of it continues; Meditation raises that part.",
+	"Healing bonus": "How much more your heals restore than base, from Healing and Spell Damage, talents and elixirs.",
+	"Spell critical strike": "Chance for a heal to restore 50% more (or Smite to hit harder). From Intellect, gear and Holy Specialization.",
 	"Grade": "Their recruitment grade, F to SSS+. It multiplies their damage, and (square-rooted) their health.",
 	"Role": "Tanks hold enemies' attention, melee fight up close, ranged fight from afar.",
 	"Damage per second": "Average damage dealt each second against a single target, crits and attack speed included.",
-	"Critical strike": "Chance for a hit to deal double damage (more with critical damage effects).",
 	"Critical damage": "How hard their critical strikes hit, as a multiple of a normal hit.",
 	"Attack speed": "How much faster than normal their attacks come.",
 	"Damage taken": "Share of incoming damage that actually hurts them, after armor and effects. Lower is better.",
-	"Dodge": "Chance to dodge an enemy's melee swing entirely.",
 	"Threat hold": "For tanks: how well they keep enemies attacking them instead of the rest of the party.",
 	"Attention drawn": "How likely enemies are to pick them when switching targets. Lower is safer.",
-	"Interrupt": "Chance to stop an enemy spell before it is cast (once every 8 sec).",
-	"Gear bonus": "How much their equipped items add to their power, for their level and role.",
+	"Interrupt chance": "Chance to stop an enemy spell before it is cast (once every 8 sec), on top of interrupt abilities.",
+	"Gear bonus": "How much their equipped items add to their damage (healing for Thyeste), for their level and role.",
 	"Average item level": "Average level of their equipped items. Gear falls behind as they level up.",
-	"Power": "Overall strength used for recommended power: grade x gear, plus talents, traits and affixes.",
+	"Power": "Overall strength used for recommended power: grade x stats, plus talents, abilities, traits and affixes.",
 	"Talent points": "One point per level from 10, up to 36 for guildmates (51 for Thyeste).",
 }
 
@@ -93,18 +91,25 @@ func _stats(m: Dictionary) -> Control:
 	var is_p := Game.is_priest(m)
 	var cls := Game.member_class(m)
 	var card := _card()
-	card.custom_minimum_size.x = 360
-	var v := Style.vbox(4)
-	card.add_child(v)
-	v.add_child(Style.label(m["name"], 26, Style.class_color(cls), true))
+	card.custom_minimum_size.x = 370
+	var cv := Style.vbox(4)
+	card.add_child(cv)
+	cv.add_child(Style.label(m["name"], 26, Style.class_color(cls), true))
 	if is_p:
-		v.add_child(Style.label("Level %d %s Priest · guild leader" % [Game.level(), ClassData.RACES.get(m["race"], "")], 14, Style.C["muted"]))
+		cv.add_child(Style.label("Level %d %s Priest · guild leader" % [Game.level(), ClassData.RACES.get(m["race"], "")], 14, Style.C["muted"]))
 	else:
 		var sp: Dictionary = ClassData.SPECS[m["spec"]]
-		v.add_child(Style.label("Level %d %s %s %s" % [Game.level(), ClassData.RACES.get(m["race"], ""), sp["name"], ClassData.class_name_of(cls)], 14, Style.C["muted"]))
-	v.add_child(HSeparator.new())
-	for row in (_priest_stats(m) if is_p else _member_stats(m)):
-		v.add_child(_stat_row(row[0], row[1]))
+		cv.add_child(Style.label("Level %d %s %s %s" % [Game.level(), ClassData.RACES.get(m["race"], ""), sp["name"], ClassData.class_name_of(cls)], 14, Style.C["muted"]))
+	var v := Style.vbox(3)
+	var sc := Style.scroll(v)
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	cv.add_child(sc)
+	for row in _attributes(m) + (_priest_stats(m) if is_p else _member_stats(m)):
+		if row.size() == 1:
+			var sec := Style.label(row[0], 16, Style.C["gold"], true)
+			v.add_child(sec)
+		else:
+			v.add_child(_stat_row(row[0], row[1], row[2] if row.size() > 2 else STAT_HELP.get(row[0], "")))
 	h.add_child(card)
 
 	var mid := _card()
@@ -120,6 +125,8 @@ func _stats(m: Dictionary) -> Control:
 			lines.append("[color=#ffd86b]%s[/color] %d/%d" % [t["name"], tal[id], t["ranks"]])
 		mv.add_child(_wrap(Style.rich("\n".join(lines) if not lines.is_empty() else "[color=#8a7262]No talents yet.[/color]", 13)))
 	else:
+		mv.add_child(Style.label("Abilities", 18, Style.C["gold"], true))
+		mv.add_child(_abilities(m))
 		mv.add_child(Style.label("Traits & affixes", 18, Style.C["gold"], true))
 		mv.add_child(_wrap(Style.rich(MemberText.traits_bb(m), 13)))
 		mv.add_child(Style.label("Utilities", 18, Style.C["gold"], true))
@@ -141,18 +148,60 @@ func _stats(m: Dictionary) -> Control:
 	return h
 
 
+## The five attributes, like WoW's character pane: total, with what gear and talents add in the tooltip.
+## Rows are [name, value, help]; a one-element row is a section title.
+func _attributes(m: Dictionary) -> Array:
+	var cls := Game.member_class(m)
+	var lvl := Game.level()
+	var st := Game.member_stats(m)
+	var gear := Stats.gear_stats(m["gear"])
+	var base := Stats.base(cls, lvl)
+	var apf: Array = Stats.AP_FROM.get(cls, [1, 0])
+	var caster := Game.member_kind(m) in ["spell", "priest"]
+	var help := {
+		"str": ("Raises Attack Power by %d per point." % apf[0] if apf[0] > 0 else "No use to them.") + \
+			(" Casters don't use Attack Power." if caster else ""),
+		"agi": "Raises critical strike chance by 1%% per %.1f Agility, dodge, and armor (2 per point)." % Stats.agi_per_crit(lvl, cls) + \
+			(" Raises Attack Power by %d per point." % apf[1] if apf[1] > 0 else ""),
+		"sta": STAT_HELP["Stamina"],
+		"int": "Raises spell critical strike chance by 1%% per %.1f Intellect." % Stats.int_per_crit(lvl) + \
+			(" Raises maximum mana." if Game.is_priest(m) else ""),
+		"spi": STAT_HELP["Spirit"],
+	}
+	var rows := [["Attributes"]]
+	for k in Stats.PRIMARY:
+		var from_gear: float = gear.get(k, 0.0)
+		var detail := "Base %d, gear +%d" % [int(base[k]), int(from_gear)]
+		var pct: float = Game.member_mods(m).get(k + "%", 0.0)
+		if pct != 0.0:
+			detail += ", talents and traits %+d%%" % int(pct)
+		rows.append([Stats.NAMES[k], "%d" % int(st[k]), "%s\n%s." % [help[k], detail]])
+	return rows
+
+
 func _priest_stats(m: Dictionary) -> Array:
+	var lvl := Game.level()
 	var spec := Game.priest_combat_spec({})
+	var st := Game.member_stats(m)
 	var tal: Dictionary = m["talents"]
 	var mana: float = spec["max_mana"] * (1.0 + Talents.value(tal, "mental_strength") / 100.0)
 	var keep := 0.15 + Talents.value(tal, "meditation") / 100.0
 	var heal_bonus: float = spec["heal_mult"] * (1.0 + (Talents.value(tal, "twin_disciplines") + Talents.value(tal, "spiritual_healing")) / 100.0) - 1.0
 	return [
-		["Health", "%d" % int(spec["max_hp"])],
+		["Spell"],
+		["Healing", "+%d" % int(st["heal"]),
+			"Raises the healing of your spells by 1%% per %.1f Healing at this level." % (Stats.healing_ref(lvl) / 100.0)],
+		["Spell Damage", "+%d" % int(st["sp"]),
+			"Raises Smite's damage by 1%% per %.1f, and your heals like Healing does." % (Stats.spell_power_ref(lvl) / 100.0)],
+		["Healing bonus", "+%d%%" % int(round(heal_bonus * 100.0))],
+		["Spell critical strike", "%.1f%%" % (spec["crit"] * 100.0 + Talents.value(tal, "holy_specialization"))],
 		["Mana", "%d" % int(mana)],
 		["Mana regeneration", "%.1f / sec (%.1f while casting)" % [spec["regen"], spec["regen"] * keep]],
-		["Healing bonus", "+%d%%" % int(round(heal_bonus * 100.0))],
-		["Critical heal chance", "%d%%" % int(5 + Talents.value(tal, "holy_specialization"))],
+		["Defense"],
+		["Health", "%d" % int(spec["max_hp"])],
+		_armor_row(st, lvl),
+		["Dodge", "%.1f%%" % st["dodge"], "Chance to dodge an enemy's melee swing entirely. From Agility and Defense."],
+		["Overall"],
 		["Gear bonus", "+%d%%" % int(round(Game.gear_bonus(m) * 100.0))],
 		["Average item level", _avg_ilvl(m)],
 		["Talent points", "%d spent, %d free" % [Talents.spent(tal), Game.talent_points_free()]],
@@ -161,33 +210,77 @@ func _priest_stats(m: Dictionary) -> Array:
 
 
 func _member_stats(m: Dictionary) -> Array:
+	var lvl := Game.level()
 	var spec := Game.member_combat_spec(m, {})
+	var st := Game.member_stats(m)
 	var mods: Dictionary = spec["mods"]
-	var crit: float = 12.0 + mods.get("crit", 0.0)
+	var caster := Game.member_kind(m) == "spell"
+	var crit: float = spec["crit"] + mods.get("crit", 0.0)
 	var crit_mult: float = 2.0 + mods.get("crit_dmg", 0.0) / 100.0
 	var haste: float = mods.get("haste", 0.0)
-	var dps: float = spec["dps"] * Balance.scale(Game.level()) * (1.0 + crit / 100.0 * (crit_mult - 1.0)) * (1.0 + haste / 100.0)
-	var rows := [
-		["Grade", "%s  (x%.2f)" % [Tiers.name_of(m["tier"]), Tiers.power(m["tier"])]],
-		["Role", Style.role_label(spec["role"])],
-		["Health", "%d" % int(spec["max_hp"])],
-		["Damage per second", "%d" % int(dps)],
-		["Critical strike", "%.0f%%" % crit],
-		["Critical damage", "x%.2f" % crit_mult],
-		["Attack speed", "+%d%%" % int(haste)],
-		["Damage taken", "%d%%" % int(round(spec["mit"] * 100.0))],
-		["Dodge", "%d%%" % int(mods.get("dodge", 0.0))],
-	]
+	var dps: float = spec["dps"] * Balance.scale(lvl) * (1.0 + crit / 100.0 * (crit_mult - 1.0)) * (1.0 + haste / 100.0)
+	var rows := [["Offense"]]
+	if caster:
+		rows.append(["Spell Damage", "+%d" % int(st["sp"]),
+			"Raises their spells' damage by 1%% per %.1f Spell Damage at this level (x%.2f now)." % [Stats.spell_power_ref(lvl) / 100.0, st["offense"]]])
+		rows.append(["Spell critical strike", "%.1f%%" % crit,
+			"Chance for a spell to deal double damage. From Intellect, gear, talents and traits."])
+	else:
+		rows.append(["Attack Power", "%d" % int(st["attack_power"]),
+			"Raises their physical damage: x%.2f now, against %d Attack Power without gear." % [st["offense"], int(st["attack_power_base"])]])
+		rows.append(["Critical strike", "%.1f%%" % crit,
+			"Chance for an attack to deal double damage. From Agility, gear, talents and traits."])
+	rows.append(["Critical damage", "x%.2f" % crit_mult])
+	rows.append(["Attack speed", "+%d%%" % int(haste)])
+	rows.append(["Damage per second", "%d" % int(dps)])
+	rows.append(["Defense"])
+	rows.append(["Health", "%d" % int(spec["max_hp"])])
+	rows.append(_armor_row(st, lvl))
+	if st.get("def", 0.0) > 0.0:
+		rows.append(["Defense", "+%d" % int(st["def"]), "Raises dodge by 0.04% per point."])
+	rows.append(["Dodge", "%.1f%%" % (spec["dodge"] + mods.get("dodge", 0.0)),
+		"Chance to dodge an enemy's melee swing entirely. From Agility, Defense, talents and traits."])
+	rows.append(["Damage taken", "%d%%" % int(round(spec["mit"] * 100.0))])
 	if spec["role"] == "tank":
 		rows.append(["Threat hold", "%d%%" % int(round(spec["aggro"] * 100.0))])
 	else:
 		rows.append(["Attention drawn", "%d%%" % int(round(clampf(100.0 - mods.get("threat", 0.0), 20.0, 200.0)))])
-	rows.append(["Interrupt", "%d%%" % int(mods.get("interrupt", 0.0))])
+	rows.append(["Overall"])
+	rows.append(["Grade", "%s  (x%.2f)" % [Tiers.name_of(m["tier"]), Tiers.power(m["tier"])]])
+	rows.append(["Role", Style.role_label(spec["role"])])
+	if mods.get("interrupt", 0.0) > 0.0:
+		rows.append(["Interrupt chance", "%d%%" % int(mods["interrupt"])])
 	rows.append(["Gear bonus", "+%d%%" % int(round(Game.gear_bonus(m) * 100.0))])
 	rows.append(["Average item level", _avg_ilvl(m)])
 	rows.append(["Talent points", "%d spent, %d free" % [SpecTalents.spent(m.get("talents", {})), Game.member_talent_points_free(m)]])
 	rows.append(["Power", "%d" % int(round(100.0 * Game.member_power(m)))])
 	return rows
+
+
+func _armor_row(st: Dictionary, lvl: int) -> Array:
+	return ["Armor", "%d" % int(st["armor"]), "Reduces physical damage taken by %.1f%% against enemies of your level. From gear and Agility." \
+		% (st["armor_reduction"] * 100.0)]
+
+
+## A guildmate's abilities, with what each does after their talents.
+func _abilities(m: Dictionary) -> Control:
+	var v := Style.vbox(6)
+	var list := Game.member_abilities(m)
+	if list.is_empty():
+		v.add_child(Style.label("None yet: abilities come from talents (from level 10).", 13, Style.C["dim"]))
+		return v
+	for a in list:
+		var h := Style.hbox(8)
+		var ic := SpellIcon.new(a["name"], WowIcons.guild_ability(a["id"]))
+		ic.tint = Style.class_color(m["class"])
+		ic.custom_minimum_size = Vector2(32, 32)
+		ic.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		h.add_child(ic)
+		var t := _wrap(Style.rich("[b]%s[/b]\n[color=#c09f86]%s[/color]" % [a["name"], SpecTalents.ability_text(a)], 13))
+		t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		h.add_child(t)
+		v.add_child(h)
+	return v
 
 
 func _avg_ilvl(m: Dictionary) -> String:
@@ -198,10 +291,10 @@ func _avg_ilvl(m: Dictionary) -> String:
 
 
 ## A stat line; hovering the name explains the stat.
-func _stat_row(stat: String, value: String) -> Control:
+func _stat_row(stat: String, value: String, help: String) -> Control:
 	var h := Style.hbox(8)
 	var lbl := Style.label(stat, 15, Style.C["muted"])
-	lbl.tooltip_text = STAT_HELP.get(stat, "")
+	lbl.tooltip_text = help
 	lbl.mouse_filter = Control.MOUSE_FILTER_STOP
 	lbl.mouse_default_cursor_shape = Control.CURSOR_HELP
 	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -231,23 +324,9 @@ func _member_talents(m: Dictionary) -> Control:
 	th.add_child(tl)
 	th.add_child(Style.label("%d points" % SpecTalents.spent(tal), 14, Style.C["muted"]))
 	v.add_child(th)
-	var grid := GridContainer.new()
-	grid.columns = 3
-	grid.add_theme_constant_override("h_separation", 34)
-	grid.add_theme_constant_override("v_separation", 2)
-	var cells := {}
-	for t in SpecTalents.tree(spec_id):
-		cells[Vector2i(t[3], t[2])] = t
-	for tier in 7:
-		for c in 3:
-			if cells.has(Vector2i(c, tier)):
-				grid.add_child(_talent_cell(m, cells[Vector2i(c, tier)], col))
-			else:
-				var empty := Control.new()
-				empty.custom_minimum_size = Vector2(CELL, CELL + 16)
-				grid.add_child(empty)
 	var cc := CenterContainer.new()
-	cc.add_child(grid)
+	cc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	cc.add_child(MemberTalentTree.new().setup(m))
 	v.add_child(cc)
 	h.add_child(p)
 
@@ -273,60 +352,21 @@ func _member_talents(m: Dictionary) -> Control:
 	bh.add_child(Style.button("Recommended build", Game.auto_member_talents.bind(m), true))
 	bh.add_child(Style.button("Reset (free)", Game.reset_member_talents.bind(m)))
 	sv.add_child(bh)
-	sv.add_child(HSeparator.new())
-	sv.add_child(Style.label("Effects of these talents", 16, Style.C["gold"], true))
+	var lv := Style.vbox(8)
+	lv.add_child(Style.label("Abilities", 16, Style.C["gold"], true))
+	lv.add_child(_abilities(m))
+	lv.add_child(Style.label("Effects of these talents", 16, Style.C["gold"], true))
 	var mods := {}
 	for id in tal:
 		var t := SpecTalents.find(spec_id, id)
 		if not t.is_empty():
 			SpecTalents.add_effects(mods, t[5], tal[id])
-	var ml := Style.rich(MemberText.mods_bb(mods), 13)
-	ml.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	sv.add_child(Style.scroll(ml))
+	lv.add_child(_wrap(Style.rich(MemberText.mods_bb(mods), 13)))
+	var ls := Style.scroll(lv)
+	ls.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sv.add_child(ls)
 	h.add_child(side)
 	return h
-
-
-func _talent_cell(m: Dictionary, t: Array, col: Color) -> Control:
-	var spec_id: String = m["spec"]
-	var tal: Dictionary = m.get("talents", {})
-	var rank: int = tal.get(t[0], 0)
-	var max_rank: int = t[4]
-	var reachable: bool = SpecTalents.spent(tal) >= t[2] * SpecTalents.POINTS_PER_TIER and Game.level() >= SpecTalents.START_LEVEL
-	var can := SpecTalents.can_learn(spec_id, tal, t[0], Game.level())
-	var v := Style.vbox(1)
-	var b := TipButton.new()
-	b.custom_minimum_size = Vector2(CELL, CELL)
-	var border := Color("ffd86b") if rank >= max_rank else (Color("6ee06e") if can or rank > 0 else Color(0.3, 0.25, 0.2))
-	b.add_theme_stylebox_override("normal", Style.box(Color.BLACK, border, 2, 4, 0))
-	b.add_theme_stylebox_override("hover", Style.box(Color.BLACK, Color.WHITE, 2, 4, 0))
-	b.add_theme_stylebox_override("pressed", Style.box(Color.BLACK, Color.WHITE, 2, 4, 0))
-	var icon := SpellIcon.new(t[1])
-	icon.tint = col
-	icon.dim = not reachable and rank == 0
-	icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	icon.offset_left = 3
-	icon.offset_top = 3
-	icon.offset_right = -3
-	icon.offset_bottom = -3
-	b.add_child(icon)
-	var tip := "[b]%s[/b]\n[color=#c0c0c0]Rank %d/%d[/color]\n" % [t[1], rank, max_rank]
-	tip += "Per rank: " + SpecTalents.effects_text(t[5])
-	if rank > 0:
-		var now := {}
-		SpecTalents.add_effects(now, t[5], rank)
-		tip += "\n[color=#6ee06e]Now: %s[/color]" % SpecTalents.effects_text(now)
-	if not reachable:
-		tip += "\n\n[color=#ff5a4a]Requires %d points spent.[/color]" % (t[2] * SpecTalents.POINTS_PER_TIER)
-	elif can:
-		tip += "\n\n[color=#6ee06e]Click to learn.[/color]"
-	b.set_tip(tip)
-	b.pressed.connect(Game.learn_member_talent.bind(m, t[0]))
-	v.add_child(b)
-	var r := Style.label("%d/%d" % [rank, max_rank], 12, border if rank > 0 or can else Style.C["dim"])
-	r.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	v.add_child(r)
-	return v
 
 
 # ---------------------------------------------------------------- helpers

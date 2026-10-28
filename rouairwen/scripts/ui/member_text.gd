@@ -31,4 +31,8 @@ static func mods_bb(mods: Dictionary) -> String:
 		if mods.has(k) and absf(mods[k]) > 0.001:
 			var col := GOOD if mods[k] > 0.0 else BAD
 			lines.append("[color=#%s]%s[/color]" % [col, SpecTalents.effect_text(k, mods[k])])
+	# Ability improvements ("+24% Rend damage")
+	for k in mods:
+		if String(k).contains(".") and absf(mods[k]) > 0.001:
+			lines.append("[color=#%s]%s[/color]" % [GOOD, SpecTalents.effect_text(k, mods[k])])
 	return "\n".join(lines) if not lines.is_empty() else "[color=#8a7262]None yet.[/color]"

@@ -199,6 +199,17 @@ const REMOVED_BY := {
 static func aura_tooltip(au: Dictionary) -> String:
 	var col := aura_color(au).to_html(false)
 	var s := "[b][color=#%s]%s[/color][/b]" % [col, au.get("name", "")]
+	# Guildmates' debuffs on enemies: who put it there, no dispel type.
+	if au.get("kind", "") == "guild":
+		var src = au.get("source")
+		s = "[b][color=#8fd3ff]%s[/color][/b]" % au.get("name", "")
+		if src != null:
+			s += "  [color=#c0c0c0]from %s[/color]" % src.name
+		if au.has("desc"):
+			s += "\n" + au["desc"]
+		if au.has("pdot"):
+			s += "\nTakes %d damage every %d sec." % [int(au["pdot"]), int(au.get("period", 3.0))]
+		return s + "\n[color=#c0c0c0]%d sec remaining[/color]" % int(ceil(au.get("remaining", 0.0)))
 	var harmful: bool = au.get("harmful", false)
 	if harmful:
 		s += "    [color=#%s]%s[/color]" % [col, TYPE_NAMES.get(au.get("dispel", ""), "Physical")]

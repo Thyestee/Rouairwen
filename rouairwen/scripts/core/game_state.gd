@@ -14,11 +14,14 @@ const MAX_GUILD := 10
 const BANK_SIZE := 80
 const QUEST_BOARD := 6
 const RECRUIT_BOARD := 3
+## Version 2: talent trees with abilities (guildmates from older saves get the recommended build).
+const TALENT_VERSION := 2
 
 var data := {}
 var rng := RandomNumberGenerator.new()
 var run := {}
 var _play_accum := 0.0
+var _weights_cache := {}
 
 
 func _ready() -> void:
@@ -89,8 +92,19 @@ func _migrate() -> void:
 		if not m.has("talents"):
 			m["talents"] = {}
 			m["auto_talents"] = true
+		# Talents from the trees before abilities don't exist anymore: start over in the recommended build.
+		if m.get("talent_version", 1) < TALENT_VERSION:
+			m["talents"] = {}
+			m["auto_talents"] = true
+			m["talent_version"] = TALENT_VERSION
 		if m.get("auto_talents", true):
 			m["talents"] = SpecTalents.auto_build(m["spec"], m["talents"], level())
+		# Traits and affixes take their current effects (Stamina instead of health, for instance).
+		var role: String = ClassData.SPECS[m["spec"]]["role"]
+		for tr in m["traits"]:
+			tr[1] = _current_effects(tr, SpecTalents.TRAITS[role])
+		for af in m["affixes"]:
+			af[1] = _current_effects(af, SpecTalents.AFFIXES_GOOD + SpecTalents.AFFIXES_BAD)
 	for c in data["recruits"]:
 		if not ClassData.SPECS.has(c["spec"]) or not c.has("traits"):
 			refresh_recruits(false)
@@ -102,6 +116,13 @@ func _migrate() -> void:
 			break
 	refresh_quests()
 	save()
+
+
+func _current_effects(entry: Array, pool: Array) -> Dictionary:
+	for p in pool:
+		if p[0] == entry[0]:
+			return p[1].duplicate()
+	return entry[1]
 
 
 func delete_save() -> void:
@@ -154,7 +175,7 @@ func new_game() -> void:
 ## A guildmate with 2 spec traits and, for recruits, up to 2 random affixes (good or bad).
 func _new_member(mname: String, race: String, spec_id: String, tier: int, with_affixes := true) -> Dictionary:
 	var m := {"id": Items.new_uid(), "name": mname, "race": race, "spec": spec_id, "class": ClassData.class_of(spec_id),
-		"tier": tier, "gear": {}, "founder": false, "talents": {}, "auto_talents": true,
+		"tier": tier, "gear": {}, "founder": false, "talents": {}, "auto_talents": true, "talent_version": TALENT_VERSION,
 		"traits": roll_traits(spec_id), "affixes": roll_affixes() if with_affixes else []}
 	m["talents"] = SpecTalents.auto_build(spec_id, {}, level() if not data.is_empty() else 1)
 	return m
@@ -227,21 +248,42 @@ func member_stat(m: Dictionary) -> String:
 	return "healing" if is_priest(m) else ClassData.SPECS[m["spec"]]["stat"]
 
 
+## How a character fights, for stats: "priest", "tank", "spell" or "physical".
+func member_kind(m: Dictionary) -> String:
+	if is_priest(m):
+		return "priest"
+	var sp: Dictionary = ClassData.SPECS[m["spec"]]
+	if sp["role"] == "tank":
+		return "tank"
+	return "spell" if sp["stat"] == "spell" else "physical"
+
+
+## Every stat of a character (Stats.compute): base, gear and talent percentages, plus derived values.
+func member_stats(m: Dictionary) -> Dictionary:
+	return Stats.compute(member_class(m), member_kind(m), level(), m["gear"], member_mods(m))
+
+
+## How much stronger gear makes a character than naked: damage for guildmates, healing for Thyeste.
 func gear_bonus(m: Dictionary) -> float:
-	return Items.gear_bonus(m["gear"], level(), member_class(m), member_stat(m))
+	var mods := member_mods(m)
+	var worn := Stats.compute(member_class(m), member_kind(m), level(), m["gear"], mods)
+	if is_priest(m):
+		return worn["heal_mult"] - 1.0
+	var naked := Stats.compute(member_class(m), member_kind(m), level(), {}, mods)
+	return worn["offense"] / naked["offense"] - 1.0
 
 
-## A guildmate's power: grade times gear, times what their talents, traits and affixes are worth.
-## 1.0 is an F grade in no gear.
+## A guildmate's power: grade times their stats' damage, times what their talents, abilities, traits
+## and affixes are worth. 1.0 is an F grade naked. Thyeste's power is her healing multiplier.
 func member_power(m: Dictionary) -> float:
 	if is_priest(m):
-		return 1.0 + gear_bonus(m)
-	return core_power(m) * (1.0 + SpecTalents.power_value(member_mods(m)))
+		return member_stats(m)["heal_mult"]
+	return core_power(m) * (1.0 + SpecTalents.power_value(member_mods(m)) + SpecTalents.ability_value(member_abilities(m)))
 
 
-## Grade times gear: what a guildmate's base damage and health scale with.
+## Grade times the damage their stats give: what a guildmate's damage scales with.
 func core_power(m: Dictionary) -> float:
-	return Tiers.power(m["tier"]) * (1.0 + gear_bonus(m))
+	return Tiers.power(m["tier"]) * member_stats(m)["offense"]
 
 
 ## All effects on a guildmate: talents, traits and affixes.
@@ -667,10 +709,18 @@ func sell(uid: int) -> void:
 	changed.emit()
 
 
+## What an item's stats are worth to a character (-1 if they can't wear it), from WoW-style stat weights.
 func item_value_for(m: Dictionary, it: Dictionary) -> float:
 	if not Items.can_use(it, member_class(m)):
 		return -1.0
-	return Items.bonus(it, level(), member_class(m), member_stat(m))
+	return Stats.item_value(it, stat_weights(m))
+
+
+func stat_weights(m: Dictionary) -> Dictionary:
+	var key := "%s|%s|%d" % [member_class(m), member_kind(m), level()]
+	if not _weights_cache.has(key):
+		_weights_cache[key] = Stats.weights(member_class(m), member_kind(m), level())
+	return _weights_cache[key]
 
 
 ## How much an item would improve a member (0 if it doesn't).
@@ -795,22 +845,34 @@ func _buff_value(buffs: Dictionary, cat: String) -> float:
 ## Combat numbers for a guildmate. Health, damage, damage taken and threat get their talent/trait/affix
 ## effects here; the rest of the effects go to the engine in "mods".
 func member_combat_spec(m: Dictionary, buffs: Dictionary) -> Dictionary:
-	return CombatEngine.member_spec(m["name"], m["spec"], core_power(m), member_mods(m), level(),
-		_buff_value(buffs, "battle_elixir") + _buff_value(buffs, "world"), _buff_value(buffs, "guardian_elixir"))
+	return CombatEngine.member_spec(m["name"], m["spec"], Tiers.power(m["tier"]), member_stats(m), member_mods(m),
+		member_abilities(m), level(), _buff_value(buffs, "battle_elixir") + _buff_value(buffs, "world"),
+		_buff_value(buffs, "guardian_elixir"))
 
 
+## Thyeste's combat numbers: Stamina for health, Intellect for mana and crit, Spirit for regeneration,
+## Healing (and Spell Damage) for heals, Spell Damage for Smite.
 func priest_combat_spec(buffs: Dictionary) -> Dictionary:
 	var p: Dictionary = data["priest"]
-	var gb := gear_bonus(p)
+	var st := member_stats(p)
 	var u := Balance.scale(level())
 	var wis := _buff_value(buffs, "priest_elixir")
 	return {
 		"name": p["name"], "talents": p["talents"], "known": Spells.known(level(), p["talents"]),
-		"max_hp": 100.0 * u * (1.0 + gb * 0.4) * (1.0 + _buff_value(buffs, "guardian_elixir")),
-		"max_mana": 300.0 * u * (1.0 + gb * 0.6) * (1.0 + wis),
-		"regen": 6.0 * u * (1.0 + gb * 0.4) * (1.0 + _buff_value(buffs, "food")),
-		"heal_mult": (1.0 + gb) * (1.0 + wis * 0.5) * (1.0 + _buff_value(buffs, "world") * 0.5),
+		"max_hp": 100.0 * u * st["health_mult"] * (1.0 + _buff_value(buffs, "guardian_elixir")),
+		"max_mana": 300.0 * u * st["mana_mult"] * (1.0 + wis),
+		"regen": 6.0 * u * st["regen_mult"] * (1.0 + _buff_value(buffs, "food")),
+		"heal_mult": st["heal_mult"] * (1.0 + wis * 0.5) * (1.0 + _buff_value(buffs, "world") * 0.5),
+		"smite_mult": st["offense"], "crit": st["spell_crit"] / 100.0, "dodge": st["dodge"],
+		"mit": Stats.armor_factor("priest", level(), st["armor"]),
 	}
+
+
+## A guildmate's abilities from their talents, with every improving talent applied.
+func member_abilities(m: Dictionary) -> Array:
+	if is_priest(m):
+		return []
+	return SpecTalents.abilities_for(m["spec"], m.get("talents", {}), member_mods(m))
 
 
 ## Party strength shown before an activity, comparable to 100 x content difficulty.
@@ -832,7 +894,7 @@ func recommended_power(act: Dictionary) -> int:
 
 ## Recommended power assumes guildmates carry the talents expected at that level.
 func recommended_talent_factor(content_level: int) -> float:
-	return 1.0 + 0.36 * Encounters.talent_frac(content_level)
+	return 1.0 + 0.43 * Encounters.talent_frac(content_level)
 
 
 # ---------------------------------------------------------------- runs

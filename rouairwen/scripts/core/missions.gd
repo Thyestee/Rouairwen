@@ -13,14 +13,14 @@ const MIN_MINUTES := 5
 const MAX_MINUTES := 20
 const COUNTER_BONUS := 0.5
 
-## Each threat lists what counters it: a member effect above 0, a role, a class, or a utility.
+## Each threat lists what counters it: a member effect above 0, an ability kind, a role, a class, or a utility.
 const THREATS := {
 	"spellcasters": {"name": "Spellcasters", "desc": "Enemy casters weave dangerous spells.",
-		"counter": "an interrupt (Kick, Pummel, Counterspell...)", "mods": ["interrupt"]},
+		"counter": "an interrupt (Kick, Pummel, Counterspell...)", "mods": ["interrupt"], "kinds": ["interrupt"]},
 	"heavy_armor": {"name": "Heavy Armor", "desc": "Plate-clad foes shrug off blows.",
 		"counter": "armor-breaking effects or a warrior", "mods": ["enemy_vuln"], "classes": ["warrior"]},
 	"swarm": {"name": "Swarm", "desc": "Far too many enemies at once.",
-		"counter": "area damage", "mods": ["aoe"]},
+		"counter": "area damage", "mods": ["aoe"], "kinds": ["aoe", "stun_all"]},
 	"brute": {"name": "Brute", "desc": "A huge champion leads the enemy.",
 		"counter": "a tank", "roles": ["tank"]},
 	"poison": {"name": "Venom", "desc": "Spiders, scorpids and poisoned blades.",
@@ -28,11 +28,11 @@ const THREATS := {
 	"curses": {"name": "Curses", "desc": "Witch doctors and warlocks lay curses.",
 		"counter": "a mage or a druid", "utils": ["remove_curse"]},
 	"ambush": {"name": "Ambush", "desc": "The enemy strikes first, from hiding.",
-		"counter": "a hunter or someone quick to dodge", "classes": ["hunter"], "mods": ["dodge"]},
+		"counter": "a hunter, a stun or someone quick to dodge", "classes": ["hunter"], "mods": ["dodge"], "kinds": ["stun"]},
 	"race_against_time": {"name": "Race Against Time", "desc": "It must be done before reinforcements arrive.",
-		"counter": "fast attackers or opening bursts", "mods": ["haste", "opener"]},
+		"counter": "fast attackers, opening bursts or cooldowns", "mods": ["haste", "opener"], "kinds": ["burst"]},
 	"overwhelming_force": {"name": "Overwhelming Force", "desc": "The enemy hits hard and keeps coming.",
-		"counter": "party protection or weakening effects", "mods": ["party_mit", "enemy_dmg", "party_hp"]},
+		"counter": "party protection or weakening effects", "mods": ["party_mit", "enemy_dmg", "party_hp"], "kinds": ["debuff_all"]},
 	"magic_wards": {"name": "Magic Wards", "desc": "Arcane and fel wards seal the way.",
 		"counter": "a mage or a warlock", "classes": ["mage", "warlock"]},
 }
@@ -103,6 +103,10 @@ static func counters(threat_id: String, m: Dictionary, mods: Dictionary) -> bool
 	for k in t.get("mods", []):
 		if mods.get(k, 0.0) > 0.0:
 			return true
+	if t.has("kinds") and m.has("spec"):
+		for a in SpecTalents.abilities_for(m["spec"], m.get("talents", {}), mods):
+			if a["kind"] in t["kinds"]:
+				return true
 	if sp.get("role", "") in t.get("roles", []):
 		return true
 	if m.get("class", "") in t.get("classes", []):

@@ -4,8 +4,11 @@ extends Control
 
 signal clicked(frame)
 
+const AURA := 18
+
 var unit
 var engine: CombatEngine
+var _aura_rects: Array = []
 
 
 func _init() -> void:
@@ -37,8 +40,10 @@ func _draw() -> void:
 	var nm: String = unit.name
 	if unit.enraged:
 		nm += " (Enraged)"
-	draw_string_outline(font, Vector2(8, 18), nm, HORIZONTAL_ALIGNMENT_LEFT, size.x - 16, 14, 4, Color.BLACK)
-	draw_string(font, Vector2(8, 18), nm, HORIZONTAL_ALIGNMENT_LEFT, size.x - 16, 14, name_col if alive else Color(0.5, 0.5, 0.5))
+	var focused: bool = engine != null and engine.focus == unit
+	var icons_end := _draw_debuffs(size.x - (26.0 if focused else 6.0)) if alive else size.x - 6.0
+	draw_string_outline(font, Vector2(8, 18), nm, HORIZONTAL_ALIGNMENT_LEFT, icons_end - 10.0, 14, 4, Color.BLACK)
+	draw_string(font, Vector2(8, 18), nm, HORIZONTAL_ALIGNMENT_LEFT, icons_end - 10.0, 14, name_col if alive else Color(0.5, 0.5, 0.5))
 	var bar := Rect2(6, 24, size.x - 12, 18)
 	draw_rect(bar, Color(0.15, 0.05, 0.05))
 	if alive:
@@ -68,13 +73,50 @@ func _draw() -> void:
 		var left: float = unit.berserk - engine.time
 		var bt := "Berserk!" if left <= 0.0 else "Enrage %d:%02d" % [int(left) / 60, int(left) % 60]
 		draw_string(font, Vector2(6, size.y - 3), bt, HORIZONTAL_ALIGNMENT_RIGHT, size.x - 12, 11, Color(1, 0.4, 0.3) if left < 20.0 else Color(1, 1, 1, 0.5))
-	var focused: bool = engine != null and engine.focus == unit
 	var border := gold if focused else (Color("8a6a2a") if unit.is_boss else Color.BLACK)
 	draw_rect(r, border, false, 2.5 if focused else 1.5)
 	if focused:
 		_skull(Vector2(size.x - 14, 12))
 	if not alive:
 		draw_rect(r, Color(0, 0, 0, 0.55))
+
+
+## Guildmates' debuffs on this enemy, right to left from `right`, with their time left.
+## Returns where the row ends on the left, so the name stops before it.
+func _draw_debuffs(right: float) -> float:
+	_aura_rects.clear()
+	var x := right
+	var font := Style.bold_font()
+	for au in unit.auras:
+		if not au.get("harmful", false):
+			continue
+		x -= AURA
+		var ar := Rect2(x, 3, AURA, AURA)
+		x -= 2
+		_aura_rects.append([ar, au])
+		var tex := WowIcons.texture(WowIcons.for_aura(au))
+		if tex != null:
+			draw_texture_rect_region(tex, ar, Rect2(Vector2.ONE * tex.get_width() * 0.08, Vector2.ONE * tex.get_width() * 0.84))
+		else:
+			draw_rect(ar, Color("5a3a7a"))
+			draw_string(font, Vector2(ar.position.x, ar.end.y - 4), String(au.get("name", "?")).substr(0, 1),
+				HORIZONTAL_ALIGNMENT_CENTER, AURA, 12, Color.WHITE)
+		draw_rect(ar, Color("8fd3ff") if not au.get("cc", false) else Color("ffd86b"), false, 1.0)
+		var left := "%d" % int(ceil(au.get("remaining", 0.0)))
+		draw_string_outline(font, Vector2(ar.position.x, ar.end.y + 1), left, HORIZONTAL_ALIGNMENT_RIGHT, AURA, 10, 3, Color.BLACK)
+		draw_string(font, Vector2(ar.position.x, ar.end.y + 1), left, HORIZONTAL_ALIGNMENT_RIGHT, AURA, 10, Color.WHITE)
+	return x
+
+
+func _get_tooltip(at_position: Vector2) -> String:
+	for pair in _aura_rects:
+		if pair[0].grow(1.0).has_point(at_position):
+			return UnitFrame.aura_tooltip(pair[1])
+	return tooltip_text
+
+
+func _make_custom_tooltip(for_text: String) -> Object:
+	return TipButton.make_tip(for_text, 260)
 
 
 func _skull(c: Vector2) -> void:

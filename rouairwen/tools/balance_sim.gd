@@ -5,7 +5,9 @@ extends SceneTree
 const DT := 0.1
 const RUNS := 40
 ## Whether guildmates carry talents and traits (false reproduces the pre-talent balance).
-var TALENTS := true
+var TALENTS := not ("--no-talents" in OS.get_cmdline_user_args())
+## Whether guildmates use their talent abilities.
+var ABILITIES := not ("--no-abilities" in OS.get_cmdline_user_args())
 
 const BUILD := ["spiritual_healing", "spiritual_healing", "spiritual_healing", "spiritual_healing", "spiritual_healing",
 	"holy_specialization", "holy_specialization", "holy_specialization", "holy_specialization", "holy_specialization",
@@ -23,7 +25,7 @@ func _init() -> void:
 	for row in [
 		["quest", 1, 2, 0.10, 1.0], ["quest", 3, 2, 0.15, 1.0], ["quest", 6, 2, 0.25, 1.0], ["quest", 6, 2, 0.25, 1.18],
 		["quest", 9, 2, 0.30, 1.4], ["quest", 15, 4, 0.35, 1.0], ["quest", 30, 6, 0.4, 1.18],
-		["dungeon", 12, 3, 0.30, 1.3], ["dungeon", 20, 4, 0.40, 1.4], ["dungeon", 35, 6, 0.45, 1.55], ["dungeon", 50, 8, 0.50, 1.7],
+		["dungeon", 12, 3, 0.30, 1.3], ["dungeon", 20, 4, 0.40, 1.4], ["dungeon", 24, 6, 0.15, 1.3], ["dungeon", 35, 6, 0.45, 1.55], ["dungeon", 50, 8, 0.50, 1.7],
 		["dungeon", 60, 9, 0.50, 2.0], ["dungeon", 60, 10, 0.55, 2.15],
 		["raid", 60, 11, 0.55, 2.6], ["raid", 60, 9, 0.50, 2.6], ["raid", 60, 13, 0.80, 3.1], ["raid", 60, 15, 0.95, 3.6], ["raid", 60, 17, 1.15, 4.1],
 	]:
@@ -62,14 +64,15 @@ func _scenario(kind: String, level: int, tier: int, gear: float, diff: float) ->
 	var hps := 0.0
 	var u := Balance.scale(level)
 	for i in RUNS:
-		var pm := Tiers.power(tier) * (1.0 + gear)
 		var specs := []
 		for sid in _party(kind):
-			specs.append(CombatEngine.member_spec(sid, sid, pm, _member_mods(sid, level, rng), level))
+			specs.append(_member(sid, level, tier, gear, rng))
 		var tal := _talents(level)
+		var ps := Stats.compute_stats("priest", "priest", level, _gear("priest", "healing", level, gear))
 		var priest := {"name": "Bot", "talents": tal, "known": Spells.known(level, tal),
-			"max_hp": 100.0 * u * (1.0 + gear * 0.4), "max_mana": 300.0 * u * (1.0 + gear * 0.6),
-			"regen": 6.0 * u * (1.0 + gear * 0.4), "heal_mult": 1.0 + gear}
+			"max_hp": 100.0 * u * ps["health_mult"], "max_mana": 300.0 * u * ps["mana_mult"],
+			"regen": 6.0 * u * ps["regen_mult"], "heal_mult": ps["heal_mult"], "smite_mult": ps["offense"],
+			"crit": ps["spell_crit"] / 100.0, "dodge": ps["dodge"], "mit": Stats.armor_factor("priest", level, ps["armor"])}
 		var size := 3 if kind == "quest" else (5 if kind == "dungeon" else 10)
 		var ftype := "pack"
 		var fight := {}
@@ -158,12 +161,35 @@ func _bot(eng: CombatEngine) -> void:
 		eng.cast("renew", low)
 
 
+## A guildmate of this grade in reference gear, with the recommended talents and 2 random traits.
+func _member(sid: String, level: int, tier: int, gear: float, rng: RandomNumberGenerator) -> Dictionary:
+	var sp: Dictionary = ClassData.SPECS[sid]
+	var cls: String = sp["class"]
+	var kind := "tank" if sp["role"] == "tank" else ("spell" if sp["stat"] == "spell" else "physical")
+	var profile := "tank" if kind == "tank" else ("spell" if kind == "spell" else
+		("physical_agi" if cls in ["rogue", "hunter"] else "physical_str"))
+	var tal := SpecTalents.auto_build(sid, {}, level) if TALENTS else {}
+	var mods := _member_mods(sid, tal, rng)
+	var st := Stats.compute_stats(cls, kind, level, _gear(cls, profile, level, gear), mods)
+	return CombatEngine.member_spec(sid, sid, Tiers.power(tier), st, mods,
+		SpecTalents.abilities_for(sid, tal, mods) if ABILITIES else [], level)
+
+
+## Reference gear: `gear` is what the old gear bonus was (0.4 = a full set of at-level greens).
+func _gear(cls: String, profile: String, level: int, gear: float) -> Dictionary:
+	var scale := gear / 0.4
+	var g := Stats.reference_gear_stats(profile, level)
+	for k in g:
+		g[k] *= scale
+	g["armor"] = (Stats.reference_armor(cls, level) - Stats.base(cls, level)["agi"] * 2.0) * clampf(scale, 0.6, 1.3)
+	return g
+
+
 ## Talents as a guildmate would have them (recommended build) plus 2 random traits, like a recruit.
-func _member_mods(spec_id: String, level: int, rng: RandomNumberGenerator) -> Dictionary:
+func _member_mods(spec_id: String, tal: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
 	var mods := {}
 	if not TALENTS:
 		return mods
-	var tal := SpecTalents.auto_build(spec_id, {}, level)
 	for id in tal:
 		SpecTalents.add_effects(mods, SpecTalents.find(spec_id, id)[5], tal[id])
 	var pool: Array = SpecTalents.TRAITS[ClassData.SPECS[spec_id]["role"]]
@@ -184,7 +210,10 @@ func _talent_values() -> void:
 		var ranks := 0
 		for t in SpecTalents.tree(sid):
 			ranks += t[4]
-		print("%-22s  %+5.1f%%   (%d ranks in tree)" % [sid, 100.0 * SpecTalents.power_value(mods), ranks])
+		var abilities := SpecTalents.abilities_for(sid, tal, mods)
+		var names := abilities.map(func(a): return a["name"])
+		print("%-22s  %+5.1f%% %+5.1f%%  share %.2f  (%d ranks) %s" % [sid, 100.0 * SpecTalents.power_value(mods),
+			100.0 * SpecTalents.ability_value(abilities), SpecTalents.damage_share(abilities), ranks, ", ".join(names)])
 
 
 func _tier_odds() -> void:

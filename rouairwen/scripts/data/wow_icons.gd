@@ -90,6 +90,15 @@ static func talent(id: String) -> String:
 	return TALENTS.get(id, "")
 
 
+## A guildmate talent's icon (see TalentIcons).
+static func guild_talent(class_id: String, id: String) -> String:
+	return TalentIcons.TALENTS.get(class_id + "/" + id, "")
+
+
+static func guild_ability(id: String) -> String:
+	return TalentIcons.ABILITIES.get(id, "")
+
+
 static func aura(id: String) -> String:
 	return AURAS.get(id, "")
 
@@ -98,10 +107,12 @@ static func consumable(rank_name: String) -> String:
 	return CONSUMABLES.get(rank_name, "")
 
 
-## The icon for an aura on a party frame: a buff by id, a debuff by name, then by kind.
+## The icon for an aura: a buff by id, a guildmate ability's by its icon id, a debuff by name, then by kind.
 static func for_aura(au: Dictionary) -> String:
 	if AURAS.has(au["id"]):
 		return AURAS[au["id"]]
+	if TalentIcons.ABILITIES.has(au.get("icon", "")):
+		return TalentIcons.ABILITIES[au["icon"]]
 	var nm: String = au.get("name", "")
 	for pair in DEBUFF_NAMES:
 		if nm.contains(pair[0]):
@@ -151,7 +162,7 @@ static func clear_cache() -> void:
 ## Every icon the game can show, for the download tool.
 static func all_names() -> Array:
 	var out := []
-	for d in [SPELLS, TALENTS, AURAS, CONSUMABLES, DEBUFF_KINDS]:
+	for d in [SPELLS, TALENTS, AURAS, CONSUMABLES, DEBUFF_KINDS, TalentIcons.ABILITIES, TalentIcons.TALENTS]:
 		for k in d:
 			if not (d[k] in out):
 				out.append(d[k])
