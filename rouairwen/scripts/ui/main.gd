@@ -9,6 +9,9 @@ var overlay: Control
 func _ready() -> void:
 	theme = Style.theme()
 	Game.toast.connect(show_toast)
+	Settings.load_settings()
+	# Size the window to the screen, except in test runs, which set their own resolution.
+	Settings.apply(get_window(), not ("--smoke" in OS.get_cmdline_user_args()))
 	var layer := CanvasLayer.new()
 	layer.layer = 50
 	add_child(layer)
@@ -30,6 +33,61 @@ func _ready() -> void:
 		smoke.main = self
 		add_child(smoke)
 		smoke.run()
+
+
+func _unhandled_input(ev: InputEvent) -> void:
+	if ev is InputEventKey and ev.pressed and not ev.echo and ev.keycode == KEY_F11:
+		Settings.toggle_fullscreen(get_window())
+		get_viewport().set_input_as_handled()
+
+
+## Display mode and UI size.
+func open_options() -> void:
+	var v := open_overlay(520)
+	v.add_child(Style.title("Options"))
+	v.add_child(Style.label("Display", 15, Style.C["gold"]))
+	var modes := Style.hbox(8)
+	var mg := ButtonGroup.new()
+	for m in Settings.MODES:
+		var b := Style.button(Settings.MODE_NAMES[m])
+		b.toggle_mode = true
+		b.button_group = mg
+		b.button_pressed = Settings.mode == m
+		b.custom_minimum_size.x = 140
+		b.pressed.connect(_set_mode.bind(m))
+		modes.add_child(b)
+	v.add_child(modes)
+	v.add_child(Style.label("Interface size", 15, Style.C["gold"]))
+	var scales := Style.hbox(8)
+	var sg := ButtonGroup.new()
+	for s in Settings.SCALES:
+		var b := Style.button("Fit window" if s == 1.0 else "%d%%" % int(round(s * 100.0)))
+		b.toggle_mode = true
+		b.button_group = sg
+		b.button_pressed = is_equal_approx(Settings.ui_scale, s)
+		b.custom_minimum_size.x = 100
+		b.pressed.connect(_set_scale.bind(s))
+		scales.add_child(b)
+	v.add_child(scales)
+	var note := Style.label("The interface always stretches to fill the window at any resolution. Smaller sizes leave more room on large screens. F11 toggles fullscreen.", 13, Style.C["muted"])
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(note)
+	var h := Style.hbox(10)
+	h.alignment = BoxContainer.ALIGNMENT_END
+	h.add_child(Style.button("Close", close_overlay, true))
+	v.add_child(h)
+
+
+func _set_mode(m: String) -> void:
+	Settings.mode = m
+	Settings.apply(get_window(), m == "windowed")
+	Settings.save_settings()
+
+
+func _set_scale(s: float) -> void:
+	Settings.ui_scale = s
+	Settings.apply(get_window())
+	Settings.save_settings()
 
 
 func _on_icons_downloaded(count: int) -> void:
@@ -144,6 +202,7 @@ func show_title() -> void:
 	var ng := Style.button("New Game", _new_game_dialog, not Game.has_save())
 	ng.custom_minimum_size.y = 44
 	v.add_child(ng)
+	v.add_child(Style.button("Options", open_options))
 	var q := Style.button("Quit", func(): get_tree().quit())
 	v.add_child(q)
 	_set_screen(root)

@@ -4,11 +4,13 @@ extends Control
 
 const NAV := [
 	["guild", "Guild Roster", "Gear and guildmates"],
+	["character", "Character Sheet", "Stats & talents"],
 	["quests", "Quest Board", "Valley of Strength"],
 	["dungeons", "Dungeons", "Cleft of Shadow"],
 	["raids", "Raids", "Grommash Hold"],
 	["recruit", "Recruitment", "Valley of Honor"],
 	["shop", "Supplies", "The Drag"],
+	["missions", "Guild Missions", "The War Table"],
 	["hall", "Guild Hall", "Upgrades & chronicle"],
 	["talents", "Talents & Spells", "Valley of Spirits"],
 ]
@@ -23,6 +25,7 @@ var selected_dungeon := ""
 var selected_raid := ""
 var selected_member = "priest"
 var bank_filter := true
+var sheet_tab := "stats"
 
 
 func _ready() -> void:
@@ -97,6 +100,16 @@ func refresh() -> void:
 			content.add_child(_recruit_page())
 		"shop":
 			content.add_child(_shop_page())
+		"character":
+			var cp := CharacterPage.new()
+			cp.hub = self
+			content.add_child(cp)
+			cp.rebuild()
+		"missions":
+			var mp := MissionPage.new()
+			mp.hub = self
+			content.add_child(mp)
+			mp.rebuild()
 		"hall":
 			content.add_child(_hall_page())
 		"talents":
@@ -153,7 +166,7 @@ func _build_nav() -> void:
 		var b := Button.new()
 		b.toggle_mode = true
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		b.custom_minimum_size = Vector2(0, 50)
+		b.custom_minimum_size = Vector2(0, 44)
 		b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		b.focus_mode = Control.FOCUS_NONE
 		b.pressed.connect(open_page.bind(n[0]))
@@ -161,7 +174,7 @@ func _build_nav() -> void:
 		v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		v.offset_left = 12
-		v.offset_top = 6
+		v.offset_top = 3
 		var l1 := Style.label(n[1], 16, Style.C["text"])
 		l1.add_theme_font_override("font", Style.bold_font())
 		l1.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -174,6 +187,7 @@ func _build_nav() -> void:
 		nav_box.add_child(b)
 		nav_buttons[n[0]] = b
 	nav_box.add_child(Style.spacer())
+	nav_box.add_child(Style.button("Options", _options))
 	nav_box.add_child(Style.button("Save & Exit", _save_exit))
 
 
@@ -194,6 +208,10 @@ func _update_nav() -> void:
 			for n in NAV:
 				if n[0] == id:
 					sub.text = n[2]
+
+
+func _options() -> void:
+	main.open_options()
 
 
 func _save_exit() -> void:
@@ -511,10 +529,11 @@ func _candidate_card(c: Dictionary, index: int) -> Control:
 	h.add_child(Style.tier_badge(c["tier"], 40))
 	v.add_child(h)
 	v.add_child(Style.rich("[color=#c09f86]Role:[/color] %s    [color=#c09f86]Power:[/color] %d" % [Style.role_label(sp["role"]), int(100 * Game.member_power(c))], 14))
-	var ut := []
-	for u in sp["util"]:
-		ut.append("[color=#ffd86b]%s[/color]: %s" % [ClassData.UTILS[u]["name"], ClassData.UTILS[u]["desc"]])
-	var ur := Style.rich("\n".join(ut), 13)
+	var tr := Style.rich(MemberText.traits_bb(c), 13)
+	tr.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tr.custom_minimum_size.x = 250
+	v.add_child(tr)
+	var ur := Style.rich(MemberText.utils_bb(c["spec"]), 12)
 	ur.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	ur.custom_minimum_size.x = 250
 	v.add_child(ur)

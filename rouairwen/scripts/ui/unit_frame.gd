@@ -14,11 +14,14 @@ const BUFF_COLORS := {
 const BUFF_LETTERS := {"renew": "R", "pws": "S", "pom": "M", "grace": "G", "inspiration": "I", "aegis": "A", "power_infusion": "P",
 	"pain_suppression": "Ps", "lightwell_renew": "L", "shield_wall": "W", "evasion": "E", "barkskin": "B"}
 
+const AURA := 18.0
+
 var unit
 var engine: CombatEngine
 var selected := false
 var hovered := false
 var _flash := 0.0
+var _aura_rects: Array = []
 
 
 func _init() -> void:
@@ -97,44 +100,7 @@ func _draw() -> void:
 	draw_string(font, Vector2(size.x - 64, 40), status, HORIZONTAL_ALIGNMENT_RIGHT, 56, 13, Color(1, 0.6, 0.6) if status in ["Dead", "Feared", "Hexed"] else Color(1, 1, 1, 0.85))
 	# Role glyph
 	_role_glyph(Vector2(size.x - 14, 14), unit.role, name_col)
-	# Auras
-	var bx := 4.0
-	var dx := size.x - 4.0
-	for au in unit.auras:
-		if au.get("hidden", false):
-			continue
-		var harmful: bool = au.get("harmful", false)
-		var col: Color
-		if harmful:
-			col = CombatEngine.DISPEL_COLORS.get(au.get("dispel", ""), Color("b02020"))
-			if au.has("bomb"):
-				col = Color("ff8000")
-			dx -= 17
-			var ar := Rect2(dx, size.y - 19, 15, 15)
-			draw_rect(ar, col)
-			draw_rect(ar, Color.BLACK, false, 1.0)
-			if au.get("dispel", "") in ["magic", "disease"]:
-				var pulse := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 150.0)
-				draw_rect(ar.grow(1), Color(1, 1, 1, pulse), false, 1.0)
-		else:
-			col = BUFF_COLORS.get(au["id"], Color("c0c0c0"))
-			var ar := Rect2(bx, size.y - 19, 15, 15)
-			var tex := WowIcons.texture(WowIcons.aura(au["id"]))
-			var letter: String = BUFF_LETTERS.get(au["id"], "")
-			if tex != null:
-				draw_texture_rect_region(tex, ar, Rect2(Vector2.ONE * tex.get_width() * 0.08, Vector2.ONE * tex.get_width() * 0.84))
-				draw_rect(ar, Color.BLACK, false, 1.0)
-				letter = ""
-			else:
-				draw_rect(ar, col.darkened(0.3))
-				draw_rect(ar, col, false, 1.0)
-			if au.has("charges"):
-				letter = str(au["charges"])
-			elif au.has("stacks"):
-				letter = str(au["stacks"])
-			draw_string_outline(font, Vector2(bx + 1, size.y - 7), letter, HORIZONTAL_ALIGNMENT_CENTER, 13, 10, 3, Color.BLACK)
-			draw_string(font, Vector2(bx + 1, size.y - 7), letter, HORIZONTAL_ALIGNMENT_CENTER, 13, 10, Color.WHITE)
-			bx += 17
+	_draw_auras(font)
 	# Borders
 	var border := Color(0, 0, 0)
 	var width := 1.0
@@ -149,6 +115,125 @@ func _draw() -> void:
 		draw_rect(r, Color(1, 1, 0.7, _flash * 2.0), false, 3.0)
 	if not unit.alive:
 		draw_rect(r, Color(0, 0, 0, 0.45))
+
+
+## Buffs on the left, debuffs on the right. Harmful debuffs glow in their type's colour
+## (magic, curse, disease, poison, physical), and every aura shows its time left.
+func _draw_auras(font: Font) -> void:
+	_aura_rects.clear()
+	var bx := 3.0
+	var dx := size.x - 3.0
+	var pulse := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 160.0)
+	for au in unit.auras:
+		if au.get("hidden", false):
+			continue
+		var is_debuff: bool = au.get("harmful", false) or au.get("debuff", false)
+		var ar: Rect2
+		if is_debuff:
+			dx -= AURA + 2
+			ar = Rect2(dx, size.y - AURA - 2, AURA, AURA)
+		else:
+			ar = Rect2(bx, size.y - AURA - 2, AURA, AURA)
+			bx += AURA + 2
+		_aura_rects.append([ar, au])
+		var col := aura_color(au)
+		var tex := WowIcons.texture(WowIcons.for_aura(au))
+		var count := ""
+		if tex != null:
+			draw_texture_rect_region(tex, ar, Rect2(Vector2.ONE * tex.get_width() * 0.08, Vector2.ONE * tex.get_width() * 0.84))
+		else:
+			draw_rect(ar, col.darkened(0.35))
+			count = BUFF_LETTERS.get(au["id"], String(au.get("name", "?")).substr(0, 1))
+		if au.get("harmful", false):
+			draw_rect(ar.grow(2.5), Color(col, 0.2 + 0.35 * pulse), false, 2.0)
+			draw_rect(ar, Color(col.lightened(0.25), 0.75 + 0.25 * pulse), false, 1.5)
+		else:
+			draw_rect(ar, Color(0.55, 0.55, 0.55) if is_debuff else Color.BLACK, false, 1.0)
+		if au.has("charges"):
+			count = str(au["charges"])
+		elif au.has("stacks"):
+			count = str(au["stacks"])
+		if count != "":
+			draw_string_outline(font, Vector2(ar.position.x + 1, ar.position.y + 9), count, HORIZONTAL_ALIGNMENT_LEFT, AURA, 9, 3, Color.BLACK)
+			draw_string(font, Vector2(ar.position.x + 1, ar.position.y + 9), count, HORIZONTAL_ALIGNMENT_LEFT, AURA, 9, Color.WHITE)
+		var left: float = au.get("remaining", 0.0)
+		if left > 0.0 and left < 100.0:
+			var t := str(int(ceil(left)))
+			var tc := Color(1, 0.45, 0.4) if left < 3.0 else Color.WHITE
+			draw_string_outline(font, Vector2(ar.position.x, ar.end.y - 1), t, HORIZONTAL_ALIGNMENT_RIGHT, AURA, 10, 3, Color.BLACK)
+			draw_string(font, Vector2(ar.position.x, ar.end.y - 1), t, HORIZONTAL_ALIGNMENT_RIGHT, AURA, 10, tc)
+
+
+static func aura_color(au: Dictionary) -> Color:
+	if au.get("harmful", false):
+		if au.has("bomb"):
+			return Color("ff8000")
+		return CombatEngine.DISPEL_COLORS.get(au.get("dispel", ""), Color("b02020"))
+	if au.get("debuff", false):
+		return Color("9a8a8a")
+	return BUFF_COLORS.get(au["id"], Color("c0c0c0"))
+
+
+func _get_tooltip(at_position: Vector2) -> String:
+	for pair in _aura_rects:
+		if pair[0].grow(1.0).has_point(at_position):
+			return UnitFrame.aura_tooltip(pair[1])
+	return ""
+
+
+func _make_custom_tooltip(for_text: String) -> Object:
+	return TipButton.make_tip(for_text, 260)
+
+
+const TYPE_NAMES := {"magic": "Magic", "curse": "Curse", "disease": "Disease", "poison": "Poison", "": "Physical"}
+const REMOVED_BY := {
+	"magic": "[color=#6ee06e]Your Dispel Magic removes it.[/color]",
+	"disease": "[color=#6ee06e]Your Dispel Magic removes it.[/color]",
+	"poison": "A shaman's Poison Cleansing Totem removes it.",
+	"curse": "A mage's or druid's Remove Curse removes it.",
+	"": "It cannot be dispelled.",
+}
+
+
+## The hover description of a buff or debuff, built from its live numbers.
+static func aura_tooltip(au: Dictionary) -> String:
+	var col := aura_color(au).to_html(false)
+	var s := "[b][color=#%s]%s[/color][/b]" % [col, au.get("name", "")]
+	var harmful: bool = au.get("harmful", false)
+	if harmful:
+		s += "    [color=#%s]%s[/color]" % [col, TYPE_NAMES.get(au.get("dispel", ""), "Physical")]
+	var d := ""
+	if au.has("desc"):
+		d = au["desc"]
+	elif au.has("dot"):
+		d = "Takes %d damage every %d sec." % [int(au["dot"]), int(au.get("period", 3.0))]
+	elif au.has("bomb"):
+		d = "Explodes when it ends, hitting the whole party for about %d." % int(au["bomb"])
+	elif au["id"] == "pom":
+		d = "Heals %d the next time they take damage, then jumps to another party member. %d jumps left." % [int(au["heal"]), au["charges"]]
+	elif au.has("heal") and au.has("period"):
+		d = "Heals %d every %d sec." % [int(au["heal"]), int(au["period"])]
+	elif au.has("absorb"):
+		d = "Absorbs %d more damage." % int(au["absorb"])
+	elif au.has("per_stack"):
+		d = "Your healing on them is increased by %d%%." % int(au["stacks"] * au["per_stack"])
+	elif au.has("dps_mult"):
+		d = "Deals %d%% more damage." % int(round((au["dps_mult"] - 1.0) * 100.0))
+	elif au.has("heal_taken"):
+		d = "Healing received is reduced by %d%%." % int(round((1.0 - au["heal_taken"]) * 100.0))
+	elif au.has("dmg_taken"):
+		d = "Takes %d%% less damage." % int(round((1.0 - au["dmg_taken"]) * 100.0))
+	elif au.get("kind", "") == "fear":
+		d = "Feared: can't attack until it ends."
+	elif au.get("cc", false):
+		d = "Can't attack until it ends or is dispelled."
+	if d != "":
+		s += "\n" + d
+	if au.get("remaining", 0.0) > 0.0:
+		s += "\n[color=#c0c0c0]%d sec remaining[/color]" % int(ceil(au["remaining"]))
+	if harmful:
+		s += "\n" + REMOVED_BY.get(au.get("dispel", ""), REMOVED_BY[""])
+	return s
 
 
 func _incoming() -> float:

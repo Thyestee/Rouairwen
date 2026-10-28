@@ -26,7 +26,13 @@ The quest board offers 6 quests, one of which is always an easy quest whose reco
 
 Every quest, dungeon run and raid run guarantees one gear piece for a random role (healer, caster, melee or tank), shown before you set out and handed out on completion.
 
-Guildmates have grades from F to SSS+; a bigger guild hall attracts better grades. The guild holds 10 members, you included. You are the guild's only healer: recruits are tanks and damage dealers.
+Guildmates have grades from F to SSS+; a bigger guild hall attracts better grades. The guild holds 10 members, you included. You are the guild's only healer: recruits are tanks and damage dealers, in every Horde damage and tank spec (Feral Cat and Bear, Subtlety, Survival, Demonology included). Each recruit arrives with 2 spec traits and up to 2 random affixes, good or bad.
+
+Guildmates have their own Classic-style talent tree for their spec (one point per level from 10, up to 36). It fills itself with a recommended build unless you edit it on the **Character Sheet**, which also shows everyone's stats (hover a stat's name for what it means), effects and gear.
+
+**Guild Missions** (the War Table) send guildmates away for 5–20 minutes of real time, even with the game closed, for gold, experience or gear. Each mission's threats are countered by abilities (interrupts, a tank, area damage, a warrior...); a team that counters nothing needs to be 50% stronger than required to be sure of success.
+
+**Options**: windowed, maximized or fullscreen (F11), and the interface size. The interface stretches to fit any resolution and aspect ratio.
 
 ## WoW icons
 

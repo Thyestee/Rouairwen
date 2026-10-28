@@ -30,7 +30,26 @@ const KINDS := {
 	"summon": {"cd": 30.0, "cast": 1.0, "dmg": false},
 }
 const DOT_TICKS := 4
+## How much enemies grow with expected guildmate talents (see talent_hp_scale).
+const TALENT_HP := 0.42
+const TALENT_HP_PER_MEMBER := 0.02
+const TALENT_DAMAGE := 0.25
 const DOT_PERIOD := 3.0
+
+
+## Share of their talent points guildmates are expected to have at a level (0 below 10, 1 at 45+).
+static func talent_frac(level: int) -> float:
+	return float(SpecTalents.points_at(level)) / SpecTalents.MAX_POINTS
+
+
+## Enemies get tougher as guildmates gain talents, so a talented party at par feels like before.
+## Bigger parties stack more party auras and enemy debuffs, hence the party-size term.
+static func talent_hp_scale(level: int, party_size: int) -> float:
+	return 1.0 + talent_frac(level) * (TALENT_HP + TALENT_HP_PER_MEMBER * party_size)
+
+
+static func talent_damage_scale(level: int) -> float:
+	return 1.0 + talent_frac(level) * TALENT_DAMAGE
 
 
 ## fight: {"type": "pack"|"elite"|"boss"|"raid_boss", "mobs": [[name, abilities]], "boss": {name, abilities, enrage?}}
@@ -41,8 +60,8 @@ static func build(fight: Dictionary, level: int, diff: float, party_size: int, r
 	var n := maxi(party_size, 3)
 	var t: float = FIGHT_TIME[type] * (1.2 if fight.get("final", false) and type == "raid_boss" else 1.0)
 	var dps_ref := (n - 1) * 14.0 * diff
-	var total_hp := dps_ref * t * u * (0.65 + 0.35 * r)
-	var incoming: float = (21.0 + 4.6 * n) * sqrt(diff) * u * r * INCOMING_MULT[type]
+	var total_hp := dps_ref * t * u * (0.65 + 0.35 * r) * talent_hp_scale(level, n)
+	var incoming: float = (21.0 + 4.6 * n) * sqrt(diff) * u * r * INCOMING_MULT[type] * talent_damage_scale(level)
 
 	var defs := []  # [name, abilities, weight, is_main, enrage]
 	if fight.has("boss"):

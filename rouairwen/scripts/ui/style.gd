@@ -177,6 +177,8 @@ static func button(text: String, cb: Callable = Callable(), primary := false) ->
 	if cb.is_valid():
 		b.pressed.connect(cb)
 	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	# Mouse-driven UI: a focused button would also react to Space, fighting the pause key.
+	b.focus_mode = Control.FOCUS_NONE
 	return b
 
 

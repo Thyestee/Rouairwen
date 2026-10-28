@@ -31,6 +31,7 @@ func _process(delta: float) -> void:
 		if _play_accum >= 1.0:
 			data["stats"]["playtime"] += int(_play_accum)
 			_play_accum -= int(_play_accum)
+			_check_missions()
 
 
 # ---------------------------------------------------------------- save / load
@@ -80,8 +81,18 @@ func _migrate() -> void:
 		else:
 			m["spec"] = to
 			add_log("%s retrains as %s %s." % [m["name"], ClassData.SPECS[to]["name"], ClassData.class_name_of(m["class"])])
+	# Guildmates from before traits and talents: 2 spec traits (no affixes) and the recommended build.
+	for m in data["members"]:
+		if not m.has("traits"):
+			m["traits"] = roll_traits(m["spec"])
+			m["affixes"] = []
+		if not m.has("talents"):
+			m["talents"] = {}
+			m["auto_talents"] = true
+		if m.get("auto_talents", true):
+			m["talents"] = SpecTalents.auto_build(m["spec"], m["talents"], level())
 	for c in data["recruits"]:
-		if not ClassData.SPECS.has(c["spec"]):
+		if not ClassData.SPECS.has(c["spec"]) or not c.has("traits"):
 			refresh_recruits(false)
 			break
 	# Quests from before random rewards and role guarantees; then top the board up (6 quests, one easy).
@@ -122,12 +133,12 @@ func new_game() -> void:
 	p["gear"]["chest"] = Items.make("Apprentice's Robe", "chest", "common", 1, "healing", "cloth")
 	p["gear"]["weapon"] = Items.make("Bent Staff", "weapon", "common", 1, "healing", "staff")
 	p["gear"]["feet"] = Items.make("Apprentice's Boots", "feet", "common", 1, "healing", "cloth")
-	var nd := _new_member("Nightdude", "orc", "shaman_enhancement", 2)
+	var nd := _new_member("Nightdude", "orc", "shaman_enhancement", 2, false)
 	nd["founder"] = true
 	nd["gear"]["chest"] = Items.make("Novice's Vest", "chest", "common", 1, "physical", "leather")
 	nd["gear"]["weapon"] = Items.make("Worn Axe", "weapon", "common", 1, "physical", "axe")
 	nd["gear"]["legs"] = Items.make("Novice's Pants", "legs", "common", 1, "physical", "leather")
-	var rk := _new_member("Raynkoy", "tauren", "warrior_fury", 2)
+	var rk := _new_member("Raynkoy", "tauren", "warrior_fury", 2, false)
 	rk["founder"] = true
 	rk["gear"]["chest"] = Items.make("Recruit's Vest", "chest", "common", 1, "physical", "mail")
 	rk["gear"]["weapon"] = Items.make("Worn Mace", "weapon", "common", 1, "physical", "mace")
@@ -140,9 +151,34 @@ func new_game() -> void:
 	changed.emit()
 
 
-func _new_member(mname: String, race: String, spec_id: String, tier: int) -> Dictionary:
-	return {"id": Items.new_uid(), "name": mname, "race": race, "spec": spec_id, "class": ClassData.class_of(spec_id),
-		"tier": tier, "gear": {}, "founder": false}
+## A guildmate with 2 spec traits and, for recruits, up to 2 random affixes (good or bad).
+func _new_member(mname: String, race: String, spec_id: String, tier: int, with_affixes := true) -> Dictionary:
+	var m := {"id": Items.new_uid(), "name": mname, "race": race, "spec": spec_id, "class": ClassData.class_of(spec_id),
+		"tier": tier, "gear": {}, "founder": false, "talents": {}, "auto_talents": true,
+		"traits": roll_traits(spec_id), "affixes": roll_affixes() if with_affixes else []}
+	m["talents"] = SpecTalents.auto_build(spec_id, {}, level() if not data.is_empty() else 1)
+	return m
+
+
+func roll_traits(spec_id: String) -> Array:
+	var role: String = ClassData.SPECS[spec_id]["role"]
+	var pool: Array = SpecTalents.TRAITS[role].duplicate()
+	pool.shuffle()
+	return [pool[0].duplicate(true), pool[1].duplicate(true)]
+
+
+func roll_affixes() -> Array:
+	var r := rng.randf()
+	var n := 0 if r < 0.35 else (1 if r < 0.8 else 2)
+	var out := []
+	var used := []
+	while out.size() < n:
+		var pool: Array = SpecTalents.AFFIXES_GOOD if rng.randf() < 0.55 else SpecTalents.AFFIXES_BAD
+		var a: Array = pool[rng.randi() % pool.size()]
+		if not (a[0] in used):
+			used.append(a[0])
+			out.append(a.duplicate(true))
+	return out
 
 
 func add_log(text: String) -> void:
@@ -195,11 +231,60 @@ func gear_bonus(m: Dictionary) -> float:
 	return Items.gear_bonus(m["gear"], level(), member_class(m), member_stat(m))
 
 
-## A guildmate's power: grade times gear. 1.0 is an F grade in no gear.
+## A guildmate's power: grade times gear, times what their talents, traits and affixes are worth.
+## 1.0 is an F grade in no gear.
 func member_power(m: Dictionary) -> float:
 	if is_priest(m):
 		return 1.0 + gear_bonus(m)
+	return core_power(m) * (1.0 + SpecTalents.power_value(member_mods(m)))
+
+
+## Grade times gear: what a guildmate's base damage and health scale with.
+func core_power(m: Dictionary) -> float:
 	return Tiers.power(m["tier"]) * (1.0 + gear_bonus(m))
+
+
+## All effects on a guildmate: talents, traits and affixes.
+func member_mods(m: Dictionary) -> Dictionary:
+	var mods := {}
+	if is_priest(m):
+		return mods
+	var tal: Dictionary = m.get("talents", {})
+	for id in tal:
+		var t := SpecTalents.find(m["spec"], id)
+		if not t.is_empty():
+			SpecTalents.add_effects(mods, t[5], tal[id])
+	for tr in m.get("traits", []) + m.get("affixes", []):
+		SpecTalents.add_effects(mods, tr[1])
+	return mods
+
+
+func member_talent_points_free(m: Dictionary) -> int:
+	return SpecTalents.points_at(level()) - SpecTalents.spent(m.get("talents", {}))
+
+
+func learn_member_talent(m: Dictionary, id: String) -> void:
+	if not SpecTalents.can_learn(m["spec"], m.get("talents", {}), id, level()):
+		return
+	m["talents"][id] = m["talents"].get(id, 0) + 1
+	m["auto_talents"] = false
+	save()
+	changed.emit()
+
+
+func reset_member_talents(m: Dictionary) -> void:
+	m["talents"] = {}
+	m["auto_talents"] = false
+	save()
+	changed.emit()
+
+
+## Re-specs a guildmate into the recommended build and keeps it filled as they level.
+func auto_member_talents(m: Dictionary) -> void:
+	m["talents"] = SpecTalents.auto_build(m["spec"], {}, level())
+	m["auto_talents"] = true
+	save()
+	changed.emit()
 
 
 func guild_full() -> bool:
@@ -253,7 +338,7 @@ func is_easy_quest(q: Dictionary) -> bool:
 
 func _make_easy_quest() -> Dictionary:
 	# Recommended power is 112% of the difficulty, so keep it comfortably under Thyeste's power.
-	var diff := minf(0.8, 0.9 * member_power(data["priest"]) / 1.12)
+	var diff := minf(0.8, 0.9 * member_power(data["priest"]) / (1.12 * recommended_talent_factor(maxi(1, level() - 1))))
 	return Activities.make_quest(level(), rng, true, diff)
 
 
@@ -327,6 +412,9 @@ func dismiss(id: int) -> void:
 	var m := member(id)
 	if m.is_empty():
 		return
+	if is_busy(m):
+		toast.emit("%s is away on a mission." % m["name"])
+		return
 	for slot in m["gear"]:
 		_bank_add(m["gear"][slot])
 	m["gear"] = {}
@@ -335,6 +423,126 @@ func dismiss(id: int) -> void:
 	toast.emit("%s leaves the guild. Their gear went to the guild bank." % m["name"])
 	save()
 	changed.emit()
+
+
+# ---------------------------------------------------------------- guild missions
+
+func missions() -> Dictionary:
+	if not data.has("missions"):
+		data["missions"] = {"board": [], "active": []}
+	var ms: Dictionary = data["missions"]
+	while ms["board"].size() < Missions.BOARD_SIZE:
+		ms["board"].append(Missions.make(level(), rng, recommended_talent_factor(level())))
+	return ms
+
+
+func busy_ids() -> Array:
+	var out := []
+	for a in missions()["active"]:
+		out.append_array(a["members"])
+	return out
+
+
+func is_busy(m: Dictionary) -> bool:
+	return not is_priest(m) and m["id"] in busy_ids()
+
+
+func mission_team(ids: Array) -> Array:
+	var team := []
+	for id in ids:
+		var m := member(id)
+		if not m.is_empty():
+			team.append(m)
+	return team
+
+
+## {ratio, bonus, effective, chance, counters: {threat: name}} for a team on a mission.
+func mission_odds(mission: Dictionary, ids: Array) -> Dictionary:
+	var team := mission_team(ids)
+	var cmap := Missions.counter_map(mission, team, member_mods)
+	var countered := 0
+	for th in cmap:
+		if cmap[th] != "":
+			countered += 1
+	var powers := team.map(func(m): return member_power(m))
+	var o := Missions.odds(mission, powers, countered)
+	o["counters"] = cmap
+	return o
+
+
+func start_mission(index: int, ids: Array) -> void:
+	var ms := missions()
+	if ms["active"].size() >= Missions.MAX_ACTIVE:
+		toast.emit("The War Table can follow %d missions at once." % Missions.MAX_ACTIVE)
+		return
+	var mission: Dictionary = ms["board"][index]
+	if ids.is_empty() or ids.size() > mission["slots"] or ids.any(func(id): return id in busy_ids()):
+		return
+	var odds := mission_odds(mission, ids)
+	ms["active"].append({"mission": mission, "members": ids, "end": Missions.now() + mission["minutes"] * 60.0,
+		"chance": odds["chance"], "notified": false})
+	ms["board"].remove_at(index)
+	add_log("%s set out on a mission: %s." % [", ".join(mission_team(ids).map(func(m): return m["name"])), mission["title"]])
+	save()
+	changed.emit()
+
+
+func reroll_missions_cost() -> int:
+	return int(Balance.income(level()) * 1.0) + 1
+
+
+func reroll_missions() -> void:
+	if spend(reroll_missions_cost()):
+		missions()["board"].clear()
+		missions()
+		save()
+		changed.emit()
+
+
+## Rolls a finished mission's outcome and grants its rewards. Returns {success, xp, gold, items, levels}.
+func collect_mission(index: int) -> Dictionary:
+	var ms := missions()
+	var a: Dictionary = ms["active"][index]
+	if Missions.time_left(a) > 0.0:
+		return {}
+	ms["active"].remove_at(index)
+	var mission: Dictionary = a["mission"]
+	var rw: Dictionary = mission["rewards"]
+	var success: bool = rng.randf() < a["chance"]
+	var res := {"success": success, "xp": 0, "gold": 0, "items": [], "levels": 0, "title": mission["title"]}
+	if success:
+		var items := []
+		for i in rw.get("items", 0):
+			var q := "uncommon"
+			var r := rng.randf()
+			if r < rw.get("epic_chance", 0.0):
+				q = "epic"
+			elif r < rw.get("epic_chance", 0.0) + rw["rare_chance"]:
+				q = "rare"
+			var team := mission_team(a["members"])
+			var profile: String = member_stat(team[rng.randi() % team.size()]) if not team.is_empty() else ""
+			items.append(wearable_item(rng.randi_range(rw["ilvl_min"], rw["ilvl_max"]), q, profile))
+		var xp := rng.randi_range(rw["xp_min"], rw["xp_max"]) if rw.has("xp_min") else 0
+		var g := rng.randi_range(rw["gold_min"], rw["gold_max"]) if rw.has("gold_min") else 0
+		var granted := _grant(xp, g, items)
+		res.merge(granted, true)
+		data["stats"]["missions"] = data["stats"].get("missions", 0) + 1
+		add_log("Mission complete: %s." % mission["title"])
+	else:
+		add_log("Mission failed: %s." % mission["title"])
+	missions()
+	save()
+	changed.emit()
+	return res
+
+
+func _check_missions() -> void:
+	if not data.has("missions"):
+		return
+	for a in data["missions"]["active"]:
+		if not a["notified"] and Missions.time_left(a) <= 0.0:
+			a["notified"] = true
+			toast.emit("Mission complete: %s. Collect it at the War Table." % a["mission"]["title"])
 
 
 # ---------------------------------------------------------------- guild hall
@@ -584,17 +792,11 @@ func _buff_value(buffs: Dictionary, cat: String) -> float:
 	return buffs.get(cat, 0.0) / 100.0
 
 
+## Combat numbers for a guildmate. Health, damage, damage taken and threat get their talent/trait/affix
+## effects here; the rest of the effects go to the engine in "mods".
 func member_combat_spec(m: Dictionary, buffs: Dictionary) -> Dictionary:
-	var sp: Dictionary = ClassData.SPECS[m["spec"]]
-	var pm := member_power(m)
-	var u := Balance.scale(level())
-	var dmg := 1.0 + _buff_value(buffs, "battle_elixir") + _buff_value(buffs, "world")
-	return {
-		"name": m["name"], "class_id": m["class"], "spec_id": m["spec"], "role": sp["role"],
-		"max_hp": sp["hp"] * u * sqrt(pm) * (1.0 + _buff_value(buffs, "guardian_elixir")),
-		"dps": sp["dps"] * pm * dmg,
-		"mit": sp["mit"], "aggro": sp["aggro"], "utils": sp["util"], "pm": pm,
-	}
+	return CombatEngine.member_spec(m["name"], m["spec"], core_power(m), member_mods(m), level(),
+		_buff_value(buffs, "battle_elixir") + _buff_value(buffs, "world"), _buff_value(buffs, "guardian_elixir"))
 
 
 func priest_combat_spec(buffs: Dictionary) -> Dictionary:
@@ -625,7 +827,12 @@ func party_power(ids: Array) -> int:
 
 func recommended_power(act: Dictionary) -> int:
 	var lvl_gap: int = act["level"] - level()
-	return int(round(100.0 * act["diff"] * pow(Balance.GROWTH, maxi(0, lvl_gap)) * 1.12))
+	return int(round(100.0 * act["diff"] * pow(Balance.GROWTH, maxi(0, lvl_gap)) * 1.12 * recommended_talent_factor(act["level"])))
+
+
+## Recommended power assumes guildmates carry the talents expected at that level.
+func recommended_talent_factor(content_level: int) -> float:
+	return 1.0 + 0.36 * Encounters.talent_frac(content_level)
 
 
 # ---------------------------------------------------------------- runs
@@ -764,14 +971,18 @@ func _grant(xp: int, g: int, items: Array) -> Dictionary:
 	add_gold(g)
 	for it in items:
 		_bank_add(it)
-	run["xp"] += xp
-	run["gold"] += g
-	run["loot"].append_array(items)
-	run["levels"] += levels
+	if not run.is_empty():
+		run["xp"] += xp
+		run["gold"] += g
+		run["loot"].append_array(items)
+		run["levels"] += levels
 	if levels > 0:
 		add_log("%s reaches level %d." % [p["name"], p["level"]])
 		refresh_quests(true)
+		if data.has("missions"):
+			data["missions"]["board"].clear()
 		refresh_recruits(false)
+		refresh_auto_talents()
 		leveled.emit(p["level"])
 	return {"xp": xp, "gold": g, "items": items, "levels": levels}
 
@@ -905,3 +1116,10 @@ func _roll_loot(fight: Dictionary, act: Dictionary) -> Array:
 					out.append(Items.from_entry(e, ilvl, "legendary"))
 					add_log("[LEGENDARY] %s drops %s!" % [b["name"], e[0]])
 	return out
+
+
+## Spends new talent points for every guildmate on the recommended build.
+func refresh_auto_talents() -> void:
+	for m in data["members"]:
+		if m.get("auto_talents", true):
+			m["talents"] = SpecTalents.auto_build(m["spec"], m.get("talents", {}), level())

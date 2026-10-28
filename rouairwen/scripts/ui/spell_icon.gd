@@ -17,6 +17,8 @@ var icon := "heal"
 var dim := false
 ## The real WoW icon to show instead of the drawn glyph, when it has been downloaded.
 var wow := ""
+## Colours a drawn glyph (guildmate talents use their class colour).
+var tint := Color(0, 0, 0, 0)
 
 
 func _init(id := "heal", wow_name := "") -> void:
@@ -44,6 +46,9 @@ func _draw() -> void:
 	var pal: Array = PALETTE.get(icon, [Color("3a2a2a"), Color("ffe0a0")])
 	var bg: Color = pal[0]
 	var fg: Color = pal[1]
+	if tint.a > 0.0:
+		bg = tint.darkened(0.6)
+		fg = tint.lightened(0.35)
 	if dim:
 		bg = bg.darkened(0.5)
 		fg = fg.darkened(0.5)
@@ -133,7 +138,21 @@ func _draw() -> void:
 			draw_circle(c + Vector2(-m * 0.06, -m * 0.04), m * 0.24, fg)
 			draw_line(c + Vector2(m * 0.1, m * 0.1), c + Vector2(m * 0.32, m * 0.32), Color("f0e0c0"), w * 1.2)
 		_:
-			var ch := icon.substr(0, 1).to_upper()
-			draw_string(Style.heading_font(), Vector2(c.x - m * 0.2, c.y + m * 0.2), ch, HORIZONTAL_ALIGNMENT_CENTER, m * 0.4, int(m * 0.5), fg)
+			var ch := SpellIcon.initials(icon)
+			var fs := int(m * (0.5 if ch.length() == 1 else 0.38))
+			draw_string_outline(Style.heading_font(), Vector2(0, c.y + fs * 0.36), ch, HORIZONTAL_ALIGNMENT_CENTER, s.x, fs, 3, Color(0, 0, 0, 0.8))
+			draw_string(Style.heading_font(), Vector2(0, c.y + fs * 0.36), ch, HORIZONTAL_ALIGNMENT_CENTER, s.x, fs, fg)
 	draw_rect(r, Color(0, 0, 0, 0.9), false, 2.0)
 	draw_rect(r.grow(-2), Color(1, 1, 1, 0.12), false, 1.0)
+
+
+## "Improved Shield Block" -> "SB": up to two initials, skipping filler words.
+static func initials(text: String) -> String:
+	var out := ""
+	for w in text.replace("-", " ").replace("(", "").replace(")", "").split(" ", false):
+		if w in ["Improved", "of", "the", "and", "Summon"]:
+			continue
+		out += w.substr(0, 1).to_upper()
+		if out.length() == 2:
+			break
+	return out if out != "" else text.substr(0, 1).to_upper()

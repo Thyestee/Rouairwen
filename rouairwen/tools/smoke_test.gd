@@ -18,12 +18,19 @@ func run() -> void:
 	await _frames(5)
 	await _shot("01_title")
 	Game.new_game()
+	_check(Game.members().all(func(m): return m["traits"].size() == 2 and m["affixes"].is_empty()), "founders have 2 traits and no affixes")
+	_check(Game.data["recruits"].all(func(c): return c["traits"].size() == 2 and c["affixes"].size() <= 2), "recruits have 2 traits and up to 2 affixes")
+	_check(UnitFrame.aura_tooltip({"id": "dot_x", "name": "Shadow Word: Pain", "dot": 12.0, "period": 3.0, "remaining": 9.0,
+		"harmful": true, "dispel": "magic", "kind": "magic_dot"}).contains("Dispel Magic"), "debuff tooltip explains how to remove it")
 	main.show_hub()
 	await _frames(3)
-	for p in ["quests", "guild", "dungeons", "raids", "recruit", "shop", "hall", "talents"]:
+	for p in ["quests", "guild", "character", "dungeons", "raids", "recruit", "shop", "missions", "hall", "talents"]:
 		main.screen.open_page(p)
 		await _frames(3)
 		await _shot("02_hub_" + p)
+	if "--ui-only" in OS.get_cmdline_user_args():
+		await _ui_only()
+		return
 
 	# A level-1 quest with the founders
 	_check(Game.data["quests"].size() == 6, "quest board holds 6 quests")
@@ -48,8 +55,49 @@ func run() -> void:
 	_check(Game.members().size() == 5, "hired three recruits")
 	Game.members()[2]["spec"] = "warrior_protection"
 	Game.members()[2]["class"] = "warrior"
+	Game.auto_member_talents(Game.members()[2])
 	for m in Game.members():
 		m["tier"] = maxi(m["tier"], 6)
+	Game.refresh_auto_talents()
+	_check(Game.members().all(func(m): return SpecTalents.spent(m["talents"]) == SpecTalents.points_at(24)), "guildmates auto-spent their talent points")
+	var tm: Dictionary = Game.members()[0]
+	Game.reset_member_talents(tm)
+	var first: Array = SpecTalents.tree(tm["spec"])[0]
+	Game.learn_member_talent(tm, first[0])
+	_check(SpecTalents.spent(tm["talents"]) == 1 and not tm["auto_talents"], "a guildmate talent can be learned by hand")
+	Game.auto_member_talents(tm)
+	_check(SpecTalents.spent(tm["talents"]) == SpecTalents.points_at(24), "recommended build refills the tree")
+
+	# Character sheet, both tabs, for a guildmate
+	main.show_hub("character")
+	main.screen.selected_member = Game.members()[2]["id"]
+	main.screen.refresh()
+	await _frames(3)
+	await _shot("05_sheet_stats")
+	main.screen.sheet_tab = "talents"
+	main.screen.refresh()
+	await _frames(3)
+	await _shot("05_sheet_talents")
+	main.screen.sheet_tab = "stats"
+
+	# A guild mission: send one guildmate, fast-forward the clock, collect
+	var ms := Game.missions()
+	_check(ms["board"].size() == Missions.BOARD_SIZE, "mission board is full")
+	var away: Dictionary = Game.members()[4]
+	Game.start_mission(0, [away["id"]])
+	_check(ms["active"].size() == 1 and Game.is_busy(away), "a guildmate left on a mission")
+	var odds: float = ms["active"][0]["chance"]
+	_check(odds >= 0.0 and odds <= 1.0, "mission success chance is a probability (%d%%)" % int(odds * 100.0))
+	var pd := PartyDialog.new()
+	pd.act = {"party_size": 5}
+	_check(not (away["id"] in pd._auto_pick()), "guildmates on missions aren't picked for activities")
+	pd.free()
+	main.show_hub("missions")
+	await _frames(3)
+	await _shot("05_missions_active")
+	ms["active"][0]["end"] = Missions.now() - 1.0
+	var res := Game.collect_mission(0)
+	_check(res.has("success") and ms["active"].is_empty() and not Game.is_busy(away), "a finished mission can be collected (%s)" % ("success" if res.get("success") else "failed"))
 	for t in ["spiritual_healing", "spiritual_healing", "spiritual_healing", "spiritual_healing", "spiritual_healing",
 			"holy_specialization", "holy_specialization", "holy_specialization", "holy_specialization", "holy_specialization", "prayer_of_mending"]:
 		Game.learn(t)
@@ -95,6 +143,7 @@ func run() -> void:
 		m["class"] = ClassData.class_of(comp[i])
 		m["tier"] = 11
 		m["gear"] = {}
+		Game.auto_member_talents(m)
 	for m in [Game.priest()] + Game.members():
 		for slot in Items.SLOTS:
 			var it := {}
@@ -157,6 +206,8 @@ func _play_run(tag: String) -> void:
 		cs.countdown = 0.0
 		cs.running = true
 		cs.center_label.text = ""
+		if guard == 1 and tag == "04_quest":
+			_check_pause_toggle(cs)
 		var steps := 0
 		while not cs.eng.over and steps < 9000:
 			_bot(cs.eng)
@@ -212,6 +263,48 @@ func _play_run(tag: String) -> void:
 	_check(false, "run %s finished within the retry budget" % tag)
 	Game.finish_run(false)
 	main.show_hub()
+
+
+## Space toggles the pause on press; releasing it changes nothing, and no button can steal the key.
+func _check_pause_toggle(cs: CombatScreen) -> void:
+	var focusable := cs.find_children("*", "BaseButton", true, false).filter(func(b): return b.focus_mode != Control.FOCUS_NONE)
+	_check(focusable.is_empty(), "no combat button can take keyboard focus (%d can)" % focusable.size())
+	var press := InputEventKey.new()
+	press.keycode = KEY_SPACE
+	press.physical_keycode = KEY_SPACE
+	press.pressed = true
+	var release: InputEventKey = press.duplicate()
+	release.pressed = false
+	cs._unhandled_input(press)
+	cs._unhandled_input(release)
+	_check(cs.paused, "Space pauses, and stays paused when released")
+	cs._unhandled_input(press)
+	cs._unhandled_input(release)
+	_check(not cs.paused, "Space again resumes")
+
+
+## Screens only, for checking layouts at several resolutions: a quest fight and the sheet.
+func _ui_only() -> void:
+	var q: Dictionary = Game.data["quests"][1]
+	Game.start_run(q, _ids(2))
+	main.start_combat()
+	var cs: CombatScreen = main.screen
+	await _frames(2)
+	cs.countdown = 0.0
+	cs.running = true
+	cs.center_label.text = ""
+	for i in 120:
+		_bot(cs.eng)
+		cs.eng.tick(0.1)
+	cs._rebuild_enemies()
+	await _frames(3)
+	await _shot("10_ui_combat")
+	Game.finish_run(false)
+	main.show_hub("character")
+	await _frames(3)
+	await _shot("10_ui_sheet")
+	print("SMOKE TEST %s (%d failure%s)" % ["PASSED" if failures == 0 else "FAILED", failures, "" if failures == 1 else "s"])
+	get_tree().quit(1 if failures > 0 else 0)
 
 
 func _bot(eng: CombatEngine) -> void:

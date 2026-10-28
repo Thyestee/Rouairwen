@@ -107,12 +107,9 @@ func _detail(m: Dictionary) -> Control:
 		v.add_child(Style.rich("[color=#c09f86]Healing:[/color] +%d%%   [color=#c09f86]Mana:[/color] +%d%%   [color=#c09f86]Power:[/color] %d" % [int(gb * 100), int(gb * 60), int(100 * Game.member_power(m))], 13))
 	else:
 		v.add_child(Style.rich("[color=#c09f86]Grade:[/color] ×%.2f   [color=#c09f86]Gear:[/color] +%d%%   [color=#c09f86]Power:[/color] %d" % [Tiers.power(m["tier"]), int(gb * 100), int(100 * Game.member_power(m))], 13))
-		var ut := []
-		for u in ClassData.SPECS[m["spec"]]["util"]:
-			ut.append("[color=#ffd86b]%s[/color] — %s" % [ClassData.UTILS[u]["name"], ClassData.UTILS[u]["desc"]])
-		var ur := Style.rich("\n".join(ut), 12)
-		ur.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		v.add_child(ur)
+		var tr := Style.rich(MemberText.traits_bb(m), 12)
+		tr.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		v.add_child(tr)
 	v.add_child(HSeparator.new())
 	var slots := Style.vbox(3)
 	for slot in Items.SLOTS:
@@ -131,6 +128,7 @@ func _detail(m: Dictionary) -> Control:
 	v.add_child(Style.scroll(slots))
 	var bh := Style.hbox(6)
 	bh.add_child(Style.button("Equip best", _equip_best.bind(m)))
+	bh.add_child(Style.button("Sheet & talents", _open_sheet))
 	if not is_p:
 		bh.add_child(Style.button("Dismiss", _dismiss.bind(m)))
 	v.add_child(bh)
@@ -229,3 +227,7 @@ func _on_menu(id: int) -> void:
 			Game.equip(Game.best_wearer(it)[0], it["uid"])
 		2:
 			Game.sell(it["uid"])
+
+
+func _open_sheet() -> void:
+	hub.open_page("character")

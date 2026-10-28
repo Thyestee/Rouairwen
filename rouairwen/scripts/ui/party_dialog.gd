@@ -26,7 +26,7 @@ func slots() -> int:
 
 ## Strongest members first, but bring a tank in dungeons and raids when the guild has one.
 func _auto_pick() -> Array:
-	var ms: Array = Game.members().duplicate()
+	var ms: Array = Game.members().filter(func(m): return not Game.is_busy(m))
 	ms.sort_custom(func(a, b): return Game.member_power(a) > Game.member_power(b))
 	var pick := []
 	var want := {"tank": 1 if act["party_size"] >= 5 else 0}
@@ -73,7 +73,12 @@ func _build() -> void:
 	var ms: Array = Game.members().duplicate()
 	ms.sort_custom(func(a, b): return Game.member_power(a) > Game.member_power(b))
 	for m in ms:
-		list.add_child(_row(m))
+		var row: Button = _row(m)
+		if Game.is_busy(m):
+			row.disabled = true
+			row.modulate = Color(1, 1, 1, 0.45)
+			row.tooltip_text = "Away on a guild mission."
+		list.add_child(row)
 	power_label = Style.rich("", 16)
 	box.add_child(power_label)
 	box.add_child(_supplies())

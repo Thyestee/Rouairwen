@@ -451,6 +451,7 @@ func _pause_menu() -> void:
 	v.add_child(Style.button("Resume", _resume, true))
 	var leave_txt := "Abandon the quest" if Game.run["activity"]["type"] == "quest" else "Leave (keep what you looted)"
 	v.add_child(Style.button(leave_txt, _leave))
+	v.add_child(Style.button("Options", _options))
 
 
 func _resume() -> void:
@@ -599,3 +600,8 @@ func _defeat_panel() -> void:
 	foot.add_child(Style.button("Return to Orgrimmar", _leave_after_win))
 	foot.add_child(Style.button("Try again", start_fight, true))
 	v.add_child(foot)
+
+
+## Options from the pause menu; closing them leaves the fight paused.
+func _options() -> void:
+	main.open_options()

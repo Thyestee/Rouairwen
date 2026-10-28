@@ -5,6 +5,8 @@ class_name Balance
 ## so a fight at level 12 plays like a fight at level 48, only with bigger numbers.
 
 const MAX_LEVEL := 60
+## Experience multiplier on every fight and quest (raised by 50%).
+const XP_RATE := 1.5
 const GROWTH := 1.06
 
 ## Classic experience needed to go from a level to the next one.
@@ -48,7 +50,7 @@ static func xp_to_next(level: int) -> int:
 	return XP_TABLE[level]
 
 
-## Average number of won fights needed per level; tuned for ~20 hours to reach 60.
+## Average number of won fights needed per level (before XP_RATE); about 20 hours at rate 1, ~14 at 1.5.
 static func fights_per_level(level: int) -> float:
 	return 4.5 + 0.75 * level
 
@@ -56,7 +58,7 @@ static func fights_per_level(level: int) -> float:
 static func xp_per_fight(level: int) -> int:
 	if level >= MAX_LEVEL:
 		return 0
-	return int(round(xp_to_next(level) / fights_per_level(level)))
+	return int(round(xp_to_next(level) / fights_per_level(level) * XP_RATE))
 
 
 ## Experience falls off when the content is far below the party.

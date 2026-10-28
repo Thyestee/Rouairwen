@@ -56,6 +56,11 @@ class Unit:
 	var retarget_timer := 0.0
 	var spirit := 0.0
 	var last_attacker = null
+	## Talent, trait and affix effects (see SpecTalents.EFFECTS).
+	var mods: Dictionary = {}
+
+	func mod(key: String) -> float:
+		return mods.get(key, 0.0)
 
 	func absorb() -> float:
 		var a := 0.0
@@ -133,6 +138,11 @@ var soulstone_used := false
 ## Windfury Totem: every ally hit (Smite included) has this chance to deal double damage.
 var windfury := false
 const WINDFURY_CHANCE := 0.05
+var windfury_chance := WINDFURY_CHANCE
+## Strongest party aura / enemy debuff of each kind (SpecTalents.GROUP_KEYS).
+var group := {}
+const INTERRUPT_COOLDOWN := 8.0
+const OPENER_TIME := 12.0
 var soulstone_timer := 0.0
 var innervate_time := 0.0
 var cleanse_timer := 6.0
@@ -181,16 +191,24 @@ func setup(priest_spec: Dictionary, party_specs: Array, enemy_specs: Array, ctx:
 		m.mit = s["mit"]
 		m.aggro = s["aggro"]
 		m.utils = s.get("utils", [])
+		m.mods = s.get("mods", {})
 		m.attack_timer = rng.randf_range(0.2, 1.5)
 		for ut in m.utils:
 			utils_present[ut] = true
+		# Party auras and enemy debuffs don't stack: the strongest one counts.
+		for k in SpecTalents.GROUP_KEYS:
+			if m.mods.has(k):
+				group[k] = maxf(group.get(k, 0.0), m.mods[k])
 		party.append(m)
 
-	# Party-wide utilities
+	# Party-wide utilities and auras
 	for m in party:
+		m.mit *= 1.0 - group.get("party_mit", 0.0) / 100.0
+		m.max_hp *= 1.0 + group.get("party_hp", 0.0) / 100.0
+		m.hp = m.max_hp
 		if m.is_priest:
 			continue
-		var mult := 1.0
+		var mult: float = 1.0 + group.get("party_dps", 0.0) / 100.0
 		if m.role == "melee" or m.role == "tank":
 			if utils_present.has("battle_shout"):
 				mult += 0.05
@@ -198,16 +216,17 @@ func setup(priest_spec: Dictionary, party_specs: Array, enemy_specs: Array, ctx:
 			mult += 0.04
 		m.dps *= mult
 
-	max_mana = priest_spec["max_mana"] * (1.0 + _tv("mental_strength") / 100.0)
+	max_mana = priest_spec["max_mana"] * (1.0 + _tv("mental_strength") / 100.0) * (1.0 + group.get("priest_mana", 0.0) / 100.0)
 	if utils_present.has("arcane_intellect"):
 		max_mana *= 1.08
-	regen = priest_spec["regen"] * (1.1 if utils_present.has("totems") else 1.0)
+	regen = priest_spec["regen"] * (1.1 if utils_present.has("totems") else 1.0) * (1.0 + group.get("priest_regen", 0.0) / 100.0)
 	fsr_keep = 0.15 + _tv("meditation") / 100.0
 	mana = max_mana * ctx.get("mana_frac", 1.0)
 	heal_mult = priest_spec["heal_mult"]
 	crit = 0.05 + _tv("holy_specialization") / 100.0
 	soulstone = ctx.get("soulstone", false) and utils_present.has("soulstone")
 	windfury = utils_present.has("windfury")
+	windfury_chance = WINDFURY_CHANCE + group.get("windfury_bonus", 0.0) / 100.0
 
 	var pots: Dictionary = ctx.get("potions", {})
 	mana_potions = pots.get("mana", 0)
@@ -229,7 +248,33 @@ func _tv(id: String) -> float:
 
 
 func _windfury_proc() -> bool:
-	return windfury and rng.randf() < WINDFURY_CHANCE
+	return windfury and rng.randf() < windfury_chance
+
+
+func _group(key: String) -> float:
+	return group.get(key, 0.0)
+
+
+## Effects that change the combat stats themselves are applied here; the rest ride along in "mods".
+const APPLIED_MODS := ["hp", "dps", "mit", "aggro"]
+
+
+## A guildmate's combat numbers from their spec, grade x gear power, and effects.
+static func member_spec(mname: String, spec_id: String, core_pm: float, mods: Dictionary, lvl: int,
+		dmg_buff := 0.0, hp_buff := 0.0) -> Dictionary:
+	var sp: Dictionary = ClassData.SPECS[spec_id]
+	var rest := {}
+	for k in mods:
+		if not (k in APPLIED_MODS):
+			rest[k] = mods[k]
+	return {
+		"name": mname, "class_id": sp["class"], "spec_id": spec_id, "role": sp["role"],
+		"max_hp": sp["hp"] * Balance.scale(lvl) * sqrt(core_pm) * (1.0 + hp_buff) * (1.0 + mods.get("hp", 0.0) / 100.0),
+		"dps": sp["dps"] * core_pm * (1.0 + dmg_buff) * (1.0 + mods.get("dps", 0.0) / 100.0),
+		"mit": clampf(sp["mit"] * (1.0 - mods.get("mit", 0.0) / 100.0), 0.3, 1.2),
+		"aggro": clampf(sp["aggro"] + mods.get("aggro", 0.0) / 100.0, 0.0, 0.98),
+		"utils": sp["util"], "pm": core_pm, "mods": rest,
+	}
 
 
 func _spawn(e: Dictionary) -> Unit:
@@ -297,6 +342,8 @@ func _random_member(exclude = null, prefer_non_tank := false) -> Unit:
 			w = 0.8
 		if prefer_non_tank and m.role == "tank":
 			w = 0.25
+		# Subtle guildmates draw less attention; reckless ones draw more.
+		w *= clampf(1.0 - m.mod("threat") / 100.0, 0.2, 2.0)
 		pool.append([m, w])
 	if pool.is_empty():
 		return null
@@ -546,7 +593,8 @@ func _resolve(id: String, target) -> void:
 			target.remove("pws")
 			target.auras.append({"id": "pws", "name": "Power Word: Shield", "remaining": 30.0, "absorb": amt, "icon": "shield", "mine": true})
 			target.remove("weakened_soul")
-			target.auras.append({"id": "weakened_soul", "name": "Weakened Soul", "remaining": 15.0, "icon": "weakened", "hidden": true})
+			target.auras.append({"id": "weakened_soul", "name": "Weakened Soul", "remaining": 15.0, "icon": "weakened", "debuff": true,
+				"desc": "Cannot be protected by Power Word: Shield."})
 			cooldowns["shield"] = s["cooldown"]
 			if talents.get("borrowed_time", 0) > 0:
 				borrowed_time = true
@@ -600,7 +648,7 @@ func _add_grace(target) -> void:
 		return
 	var g: Dictionary = target.get_aura("grace")
 	if g.is_empty():
-		target.auras.append({"id": "grace", "name": "Grace", "remaining": 15.0, "stacks": 1, "icon": "grace", "mine": true})
+		target.auras.append({"id": "grace", "name": "Grace", "remaining": 15.0, "stacks": 1, "per_stack": _tv("grace"), "icon": "grace", "mine": true})
 	else:
 		g["stacks"] = mini(g["stacks"] + 1, 3)
 		g["remaining"] = 15.0
@@ -674,6 +722,7 @@ func _heal_other(target: Unit, amount: float) -> void:
 func _damage_enemy(e: Unit, amount: float, source: Unit, label := "", is_crit := false) -> void:
 	if not e.alive:
 		return
+	amount *= 1.0 + _group("enemy_vuln") / 100.0
 	e.hp -= amount
 	if source != null:
 		source.damage_done += amount
@@ -695,7 +744,13 @@ func damage(target: Unit, amount: float, attacker: Unit, label := "") -> void:
 		return
 	if target.spirit > 0.0:
 		return
+	# Plain melee swings (no label) can be dodged.
+	if label == "" and attacker != null and attacker.is_enemy and target.mod("dodge") > 0.0 and rng.randf() * 100.0 < target.mod("dodge"):
+		floating.emit(target, "Dodge", "info")
+		return
 	amount *= _mult(target, "dmg_taken") * target.mit
+	if attacker != null and attacker.is_enemy:
+		amount *= 1.0 - _group("enemy_dmg") / 100.0
 	if attacker != null and attacker.enraged:
 		amount *= 1.4
 	if attacker != null and attacker.berserk > 0.0 and time > attacker.berserk:
@@ -767,9 +822,18 @@ func _on_damaged(m: Unit, total: float) -> void:
 		m.used["evasion"] = true
 		m.auras.append({"id": "evasion", "name": "Evasion", "remaining": 8.0, "dmg_taken": 0.5, "icon": "evasion"})
 		log_line.emit("%s uses Evasion." % m.name)
+	if f < 0.2 and m.mod("last_stand") > 0.0 and not m.used.has("last_stand") and m.hp > 0.0:
+		m.used["last_stand"] = true
+		_heal_other(m, m.max_hp * m.mod("last_stand") / 100.0)
+		log_line.emit("%s uses Last Stand!" % m.name)
+	if f < 0.15 and m.mod("ice_block") > 0.0 and not m.used.has("ice_block") and m.hp > 0.0:
+		m.used["ice_block"] = true
+		m.auras.append({"id": "ice_block", "name": "Ice Block", "remaining": m.mod("ice_block"), "dmg_taken": 0.0,
+			"desc": "Immune to damage.", "icon": "ice_block"})
+		log_line.emit("%s uses Ice Block!" % m.name)
 	if f < 0.3 and _party_has("healthstone") and not m.used.has("healthstone") and m.hp > 0.0:
 		m.used["healthstone"] = true
-		_heal_other(m, 50.0 * u)
+		_heal_other(m, 50.0 * u * (1.0 + _group("healthstone_bonus") / 100.0))
 		log_line.emit("%s eats a Healthstone." % m.name)
 	elif f < 0.25 and healing_potions > 0 and not m.used.has("potion") and m.hp > 0.0:
 		m.used["potion"] = true
@@ -794,6 +858,13 @@ func _die(m: Unit) -> void:
 		m.auras = m.auras.filter(func(a): return not a.get("harmful", false))
 		log_line.emit("[color=#fff4cf]You become a Spirit of Redemption![/color]")
 		return
+	if not m.is_priest and m.mod("cheat_death") > 0.0 and not m.used.has("cheat_death"):
+		m.used["cheat_death"] = true
+		if rng.randf() * 100.0 < m.mod("cheat_death"):
+			m.hp = m.max_hp * 0.1
+			floating.emit(m, "Cheat Death", "info")
+			log_line.emit("[color=#fff569]%s cheats death![/color]" % m.name)
+			return
 	m.hp = 0.0
 	m.alive = false
 	m.auras.clear()
@@ -922,17 +993,32 @@ func _tick_party(dt: float) -> void:
 			continue
 		m.attack_timer -= dt
 		if m.attack_timer <= 0.0:
+			# Haste makes hits come sooner; each hit still carries a full interval's worth of damage.
 			var interval := rng.randf_range(1.6, 2.4)
-			m.attack_timer += interval
+			m.attack_timer += interval / maxf(0.5, 1.0 + m.mod("haste") / 100.0)
 			var e := _attack_target(m, targets)
 			if e != null:
 				var dmg: float = m.dps * u * interval * _mult(m, "dps_mult") * rng.randf_range(0.85, 1.15)
 				if "mortal_strike" in m.utils and e.is_boss:
 					dmg *= 1.06
-				if rng.randf() < 0.12:
-					dmg *= 2.0
+				var bonus := 0.0
+				if time < OPENER_TIME:
+					bonus += m.mod("opener")
+				if e.is_boss:
+					bonus += m.mod("boss")
+				if targets.size() >= 3:
+					bonus += m.mod("aoe")
+				if e.frac() < 0.25:
+					bonus += m.mod("execute")
+				dmg *= maxf(0.1, 1.0 + bonus / 100.0)
+				if rng.randf() * 100.0 < 12.0 + m.mod("crit") + _group("party_crit"):
+					dmg *= 2.0 + m.mod("crit_dmg") / 100.0
 				if _windfury_proc():
 					dmg *= 2.0
+				if m.mod("extra_attack") > 0.0 and rng.randf() * 100.0 < m.mod("extra_attack"):
+					dmg *= 2.0
+				if m.mod("leech") > 0.0:
+					m.hp = minf(m.max_hp, m.hp + dmg * m.mod("leech") / 100.0)
 				_damage_enemy(e, dmg, m)
 				if not e.alive:
 					targets = alive_enemies()
@@ -1009,6 +1095,8 @@ func _tick_enemies(dt: float) -> void:
 			if ab["timer"] <= 0.0 and e.cast.is_empty():
 				ab["timer"] = ab["cd"] * rng.randf_range(0.85, 1.15)
 				var tgt := _ability_target(e, ab)
+				if ab["cast"] > 0.0 and _try_interrupt(e, ab):
+					break
 				if ab["cast"] > 0.0:
 					e.cast = {"ability": ab, "remaining": ab["cast"], "total": ab["cast"], "target": tgt}
 					if ab["kind"] in ["aoe", "fear", "bomb"] or e.is_boss:
@@ -1016,6 +1104,21 @@ func _tick_enemies(dt: float) -> void:
 				else:
 					_use_ability(e, ab, tgt)
 				break
+
+
+## A guildmate with an interrupt may stop an enemy cast before it starts (8 sec cooldown each).
+func _try_interrupt(e: Unit, ab: Dictionary) -> bool:
+	for m in party:
+		if not m.alive or m.is_priest or m.cc() or m.mod("interrupt") <= 0.0:
+			continue
+		if m.used.get("interrupt_ready", 0.0) > time:
+			continue
+		if rng.randf() * 100.0 < m.mod("interrupt"):
+			m.used["interrupt_ready"] = time + INTERRUPT_COOLDOWN
+			floating.emit(e, "Interrupted", "info")
+			log_line.emit("[color=#ffd86b]%s[/color] interrupts %s's %s!" % [m.name, e.name, ab["name"]])
+			return true
+	return false
 
 
 func _retarget(e: Unit) -> void:
@@ -1065,7 +1168,7 @@ func _use_ability(e: Unit, ab: Dictionary, tgt) -> void:
 				damage(tgt, amt, e, nm)
 				if ab["kind"] == "mortal" and tgt.alive:
 					tgt.remove("mortal")
-					tgt.auras.append({"id": "mortal", "name": nm, "remaining": 6.0, "heal_taken": 0.5, "harmful": true, "icon": "mortal", "dispel": ""})
+					tgt.auras.append({"id": "mortal", "name": nm, "remaining": 6.0, "heal_taken": 0.5, "harmful": true, "icon": "mortal", "dispel": "", "kind": "mortal"})
 		"cleave", "breath":
 			var hit := [e.target]
 			for i in 2:
@@ -1083,22 +1186,22 @@ func _use_ability(e: Unit, ab: Dictionary, tgt) -> void:
 				m.remove("dot_" + nm)
 				m.auras.append({"id": "dot_" + nm, "name": nm, "remaining": Encounters.DOT_TICKS * Encounters.DOT_PERIOD,
 					"period": Encounters.DOT_PERIOD, "tick_timer": Encounters.DOT_PERIOD, "dot": amt, "source": e,
-					"dispel": ab.get("dispel", ""), "harmful": true, "icon": "debuff"})
+					"dispel": ab.get("dispel", ""), "harmful": true, "icon": "debuff", "kind": ab["kind"]})
 		"bomb":
 			if tgt != null:
 				tgt.auras.append({"id": "bomb_" + str(e.uid), "name": nm, "remaining": ab.get("delay", 6.0), "bomb": amt,
-					"source": e, "harmful": true, "dispel": "", "icon": "bomb"})
+					"source": e, "harmful": true, "dispel": "", "icon": "bomb", "kind": "bomb"})
 				log_line.emit("[color=#ff8000]%s[/color] is afflicted by %s!" % [tgt.name, nm])
 		"fear":
 			for m in alive_party():
 				if not m.is_priest:
 					m.remove("fear")
-					m.auras.append({"id": "fear", "name": nm, "remaining": 3.0, "cc": true, "harmful": true, "dispel": "", "icon": "fear"})
+					m.auras.append({"id": "fear", "name": nm, "remaining": 3.0, "cc": true, "harmful": true, "dispel": "", "icon": "fear", "kind": "fear"})
 			log_line.emit("%s's %s scatters the party!" % [e.name, nm])
 		"hex":
 			if tgt != null:
 				tgt.remove("hex")
-				tgt.auras.append({"id": "hex", "name": nm, "remaining": 7.0, "cc": true, "harmful": true, "dispel": "magic", "icon": "hex"})
+				tgt.auras.append({"id": "hex", "name": nm, "remaining": 7.0, "cc": true, "harmful": true, "dispel": "magic", "icon": "hex", "kind": "hex"})
 				log_line.emit("[color=#3c8cff]%s[/color] is under %s. Dispel it!" % [tgt.name, nm])
 		"silence":
 			if not casting.is_empty():
@@ -1115,7 +1218,7 @@ func _use_ability(e: Unit, ab: Dictionary, tgt) -> void:
 			log_line.emit("%s's %s burns your mana." % [e.name, nm])
 		"heal":
 			if tgt != null and tgt.alive:
-				var h: float = tgt.max_hp * ab["amount"]
+				var h: float = tgt.max_hp * ab["amount"] * (1.0 - _group("anti_heal") / 100.0)
 				tgt.hp = minf(tgt.max_hp, tgt.hp + h)
 				log_line.emit("%s heals %s with %s." % [e.name, tgt.name, nm])
 		"summon":

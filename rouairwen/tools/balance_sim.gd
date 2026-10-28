@@ -4,6 +4,8 @@ extends SceneTree
 
 const DT := 0.1
 const RUNS := 40
+## Whether guildmates carry talents and traits (false reproduces the pre-talent balance).
+var TALENTS := true
 
 const BUILD := ["spiritual_healing", "spiritual_healing", "spiritual_healing", "spiritual_healing", "spiritual_healing",
 	"holy_specialization", "holy_specialization", "holy_specialization", "holy_specialization", "holy_specialization",
@@ -26,6 +28,7 @@ func _init() -> void:
 		["raid", 60, 11, 0.55, 2.6], ["raid", 60, 9, 0.50, 2.6], ["raid", 60, 13, 0.80, 3.1], ["raid", 60, 15, 0.95, 3.6], ["raid", 60, 17, 1.15, 4.1],
 	]:
 		_scenario(row[0], row[1], row[2], row[3], row[4])
+	_talent_values()
 	_tier_odds()
 	_economy()
 	quit()
@@ -62,10 +65,7 @@ func _scenario(kind: String, level: int, tier: int, gear: float, diff: float) ->
 		var pm := Tiers.power(tier) * (1.0 + gear)
 		var specs := []
 		for sid in _party(kind):
-			var sp: Dictionary = ClassData.SPECS[sid]
-			specs.append({"name": sid, "class_id": sp["class"], "spec_id": sid, "role": sp["role"],
-				"max_hp": sp["hp"] * u * sqrt(pm), "dps": sp["dps"] * pm,
-				"mit": sp["mit"], "aggro": sp["aggro"], "utils": sp["util"]})
+			specs.append(CombatEngine.member_spec(sid, sid, pm, _member_mods(sid, level, rng), level))
 		var tal := _talents(level)
 		var priest := {"name": "Bot", "talents": tal, "known": Spells.known(level, tal),
 			"max_hp": 100.0 * u * (1.0 + gear * 0.4), "max_mana": 300.0 * u * (1.0 + gear * 0.6),
@@ -156,6 +156,35 @@ func _bot(eng: CombatEngine) -> void:
 			return
 	if low.frac() < 0.8 and not low.has("renew") and eng.mana > eng.max_mana * 0.5:
 		eng.cast("renew", low)
+
+
+## Talents as a guildmate would have them (recommended build) plus 2 random traits, like a recruit.
+func _member_mods(spec_id: String, level: int, rng: RandomNumberGenerator) -> Dictionary:
+	var mods := {}
+	if not TALENTS:
+		return mods
+	var tal := SpecTalents.auto_build(spec_id, {}, level)
+	for id in tal:
+		SpecTalents.add_effects(mods, SpecTalents.find(spec_id, id)[5], tal[id])
+	var pool: Array = SpecTalents.TRAITS[ClassData.SPECS[spec_id]["role"]]
+	var a := rng.randi() % pool.size()
+	var b := (a + 1 + rng.randi() % (pool.size() - 1)) % pool.size()
+	SpecTalents.add_effects(mods, pool[a][1])
+	SpecTalents.add_effects(mods, pool[b][1])
+	return mods
+
+
+func _talent_values() -> void:
+	print("\nspec                    full tree power   (talents only, 36 points)")
+	for sid in SpecTalents.TREES:
+		var mods := {}
+		var tal := SpecTalents.auto_build(sid, {}, 60)
+		for id in tal:
+			SpecTalents.add_effects(mods, SpecTalents.find(sid, id)[5], tal[id])
+		var ranks := 0
+		for t in SpecTalents.tree(sid):
+			ranks += t[4]
+		print("%-22s  %+5.1f%%   (%d ranks in tree)" % [sid, 100.0 * SpecTalents.power_value(mods), ranks])
 
 
 func _tier_odds() -> void:
