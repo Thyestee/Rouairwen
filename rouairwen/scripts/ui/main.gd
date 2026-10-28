@@ -72,10 +72,36 @@ func open_options() -> void:
 	var note := Style.label("The interface always stretches to fill the window at any resolution. Smaller sizes leave more room on large screens. F11 toggles fullscreen.", 13, Style.C["muted"])
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(note)
+	v.add_child(Style.label("Controls", 15, Style.C["gold"]))
+	var kb := Style.button("Key bindings", open_key_bindings)
+	kb.custom_minimum_size.x = 200
+	kb.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	v.add_child(kb)
+	v.add_child(Style.label("Experience (testing)", 15, Style.C["gold"]))
+	var rates := Style.hbox(8)
+	var xg := ButtonGroup.new()
+	for on in [false, true]:
+		var b := Style.button("XP x%d" % Settings.XP_BOOST if on else "Normal")
+		b.toggle_mode = true
+		b.button_group = xg
+		b.button_pressed = Settings.xp_boost == on
+		b.custom_minimum_size.x = 140
+		b.pressed.connect(_set_xp_boost.bind(on))
+		rates.add_child(b)
+	v.add_child(rates)
 	var h := Style.hbox(10)
 	h.alignment = BoxContainer.ALIGNMENT_END
 	h.add_child(Style.button("Close", close_overlay, true))
 	v.add_child(h)
+
+
+## Keys for the action bar slots, the mana potion and pause.
+func open_key_bindings() -> void:
+	var v := open_overlay(820)
+	var kb := KeyBindPage.new()
+	kb.main = self
+	v.add_child(kb)
+	kb.rebuild()
 
 
 func _set_mode(m: String) -> void:
@@ -88,6 +114,13 @@ func _set_scale(s: float) -> void:
 	Settings.ui_scale = s
 	Settings.apply(get_window())
 	Settings.save_settings()
+
+
+func _set_xp_boost(on: bool) -> void:
+	Settings.xp_boost = on
+	Settings.save_settings()
+	if screen is HubScreen:
+		screen.refresh()
 
 
 func _on_icons_downloaded(count: int) -> void:

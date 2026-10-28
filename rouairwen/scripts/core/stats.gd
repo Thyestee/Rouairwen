@@ -11,6 +11,10 @@ class_name Stats
 ## Stamina gives health, Armor reduces physical damage, Defense raises dodge. The combat engine works
 ## in level-scaled units, so each stat is converted relative to what a character of that level has
 ## naked; at-level green gear lands on the same strength as before stats existed.
+##
+## Healing and Spell Damage add to Thyeste's spells like in WoW: each spell adds its coefficient of
+## them (see Spells). Spell amounts grow 6% a level, so these two grow the same way on items
+## (power_points), and a coefficient is worth as much at level 10 as at 60.
 
 const PRIMARY := ["str", "agi", "sta", "int", "spi"]
 const SECONDARY := ["ap", "sp", "heal", "crit", "def"]
@@ -36,8 +40,12 @@ const ARMOR_TYPE := {"warrior": "plate", "shaman": "mail", "hunter": "mail", "ro
 	"mage": "cloth", "warlock": "cloth", "priest": "cloth"}
 
 ## How stat points are bought on items: a point of budget buys 1 primary stat, 2 Attack Power,
-## 1.2 Spell Damage, 2.2 Healing, 1 Defense, or 1/14 of a percent of crit.
+## 1.2 Spell Damage, 2.2 Healing (both times power_points), 1 Defense, or 1/14 of a percent of crit.
 const PER_POINT := {"str": 1.0, "agi": 1.0, "sta": 1.0, "int": 1.0, "spi": 1.0, "ap": 2.0, "sp": 1.2, "heal": 2.2, "def": 1.0, "crit": 1.0 / 14.0}
+## Healing and Spell Damage per budget point, times scale(ilvl) / ilvl: a full set of at-level greens
+## gives about 34 x Balance.scale(level) healing power, which Lesser Heal (71%) turns into +43%.
+const POWER_K := 5.68
+const POWER_STATS := ["heal", "sp"]
 
 ## Classic random suffixes.
 const SUFFIX_STATS := {
@@ -89,12 +97,21 @@ static func int_per_crit(level: int) -> float:
 	return 9.5 * level_factor(level)
 
 
+## What a budget point of Healing or Spell Damage is multiplied by at an item level. It follows the
+## spells' 6% a level up to 60; raid items past it only grow with their budget.
+static func power_points(ilvl: int) -> float:
+	var l := clampi(ilvl, 3, Balance.MAX_LEVEL)
+	return POWER_K * Balance.scale(l) / l
+
+
+## Spell Damage that doubles a caster guildmate's damage (and about doubles Smite).
 static func spell_power_ref(level: int) -> float:
-	return 8.4 * maxi(level, 2)
+	return 8.4 * maxi(level, 2) * power_points(level)
 
 
+## Healing power that doubles Lesser Heal: what a heal's gain from gear is measured against.
 static func healing_ref(level: int) -> float:
-	return 13.8 * maxi(level, 3)
+	return 13.8 * maxi(level, 3) * power_points(level)
 
 
 ## Classic armor formula: reduction = armor / (armor + 400 + 85 x attacker level).
@@ -135,6 +152,8 @@ static func item_stats(item: Dictionary) -> Dictionary:
 	var leftover := 0.0
 	for k in split:
 		var v: float = budget * split[k] * PER_POINT[k]
+		if k in POWER_STATS:
+			v *= power_points(int(item["ilvl"]))
 		if k == "crit":
 			v = floorf(v)
 			if v < 1.0:
@@ -205,8 +224,11 @@ static func compute_stats(class_id: String, kind: String, level: int, gear: Dict
 	s["health_mult"] = 0.85 + 0.15 * s["sta"] / b["sta"]
 	s["mana_mult"] = 0.75 + 0.25 * s["int"] / b["int"]
 	s["regen_mult"] = 0.78 + 0.22 * s["spi"] / b["spi"]
-	# Spell Damage gear raises healing too ("damage and healing done by magical spells").
-	s["heal_mult"] = 1.0 + (s["heal"] + s["sp"]) / healing_ref(level)
+	# Spell Damage gear raises healing too ("damage and healing done by magical spells"). Spells add a
+	# coefficient of these; heal_mult is what they do for Lesser Heal, the healer's overall power.
+	s["heal_power"] = s["heal"] + s["sp"]
+	s["spell_power"] = s["sp"]
+	s["heal_mult"] = 1.0 + s["heal_power"] / healing_ref(level)
 	return s
 
 
@@ -235,7 +257,7 @@ static func reference_gear_stats(profile: String, level: int, quality := "uncomm
 		var split: Dictionary = PROFILE_STATS[profile]
 		var budget := item_budget(it)
 		for k in split:
-			out[k] = out.get(k, 0.0) + budget * split[k] * PER_POINT[k]
+			out[k] = out.get(k, 0.0) + budget * split[k] * PER_POINT[k] * (power_points(level) if k in POWER_STATS else 1.0)
 	return out
 
 

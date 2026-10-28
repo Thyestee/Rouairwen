@@ -124,8 +124,11 @@ var max_mana := 1.0
 var regen := 1.0
 var fsr_keep := 0.15
 var since_spend := 99.0
+## Healing power (Healing + Spell Damage) and Spell Damage: each spell adds its coefficient of them.
+var heal_power := 0.0
+var spell_power := 0.0
+## Healing multiplier from elixirs and world buffs.
 var heal_mult := 1.0
-var smite_mult := 1.0
 var crit := 0.05
 var haste := 0.0
 var casting: Dictionary = {}
@@ -248,9 +251,10 @@ func setup(priest_spec: Dictionary, party_specs: Array, enemy_specs: Array, ctx:
 	regen = priest_spec["regen"] * (1.1 if utils_present.has("totems") else 1.0) * (1.0 + group.get("priest_regen", 0.0) / 100.0)
 	fsr_keep = 0.15 + _tv("meditation") / 100.0
 	mana = max_mana * ctx.get("mana_frac", 1.0)
-	heal_mult = priest_spec["heal_mult"]
+	heal_power = priest_spec.get("heal_power", 0.0)
+	spell_power = priest_spec.get("spell_power", 0.0)
+	heal_mult = priest_spec.get("heal_mult", 1.0)
 	crit = priest_spec.get("crit", 0.05) + _tv("holy_specialization") / 100.0
-	smite_mult = priest_spec.get("smite_mult", priest_spec["heal_mult"])
 	soulstone = ctx.get("soulstone", false) and utils_present.has("soulstone")
 	windfury = utils_present.has("windfury")
 	windfury_chance = WINDFURY_CHANCE + group.get("windfury_bonus", 0.0) / 100.0
@@ -593,18 +597,81 @@ func _channel_tick() -> void:
 		casting = {}
 
 
-## Healing bonuses that apply to every priest heal.
+## A heal's amount before crits: base plus its coefficient of healing power, with every bonus.
 func _base_heal(id: String) -> float:
-	var s: Dictionary = Spells.BOOK[id]
-	var a: float = s["amount"] * u * heal_mult
-	a *= 1.0 + (_tv("twin_disciplines") + _tv("spiritual_healing")) / 100.0
+	return spell_amount(id, level, heal_power, spell_power, heal_mult, talents)
+
+
+## A spell's coefficient, Empowered Healing included.
+static func spell_coef(id: String, tal: Dictionary) -> float:
+	var c: float = Spells.BOOK[id].get("coef", 0.0)
 	if id == "heal":
-		a *= 1.0 + _tv("empowered_healing") / 100.0
+		c += Talents.value(tal, "empowered_healing") / 100.0
 	elif id == "flash_heal":
-		a *= 1.0 + _tv("empowered_healing") / 200.0
-	elif id == "renew":
-		a *= 1.0 + _tv("improved_renew") / 100.0
+		c += Talents.value(tal, "empowered_healing") / 200.0
+	return c
+
+
+## A priest spell's amount (heal, absorb or damage) before crits and random spread: its base in level
+## units plus its coefficient of healing power (Spell Damage for Smite), times talents and buffs.
+## Shared with tooltips, so they show what the spell really does.
+static func spell_amount(id: String, lvl: int, hp: float, spp: float, mult: float, tal: Dictionary) -> float:
+	var s: Dictionary = Spells.BOOK[id]
+	var power: float = spp if s.get("power", "") == "spell" else hp
+	var a: float = s["amount"] * Balance.scale(lvl) + spell_coef(id, tal) * power
+	if id == "smite":
+		return a * (1.0 + Talents.value(tal, "twin_disciplines") / 100.0)
+	a *= mult * (1.0 + (Talents.value(tal, "twin_disciplines") + Talents.value(tal, "spiritual_healing")) / 100.0)
+	if id == "renew":
+		a *= 1.0 + Talents.value(tal, "improved_renew") / 100.0
+	elif id == "shield":
+		a *= 1.0 + Talents.value(tal, "improved_shield") / 100.0
 	return a
+
+
+## "Heals for 2412 (+756 from healing power, 71%)": what a spell does now, for its tooltip.
+static func spell_text(id: String, lvl: int, hp: float, spp: float, mult: float, tal: Dictionary) -> String:
+	var s: Dictionary = Spells.BOOK[id]
+	if s["amount"] <= 0:
+		return ""
+	var total := spell_amount(id, lvl, hp, spp, mult, tal)
+	var spell: bool = s.get("power", "") == "spell"
+	var power := spp if spell else hp
+	var coef := spell_coef(id, tal)
+	var gain := total - spell_amount(id, lvl, 0.0, 0.0, mult, tal)
+	var what := ""
+	match id:
+		"smite":
+			what = "Deals %d Holy damage" % total
+		"shield":
+			what = "Absorbs %d damage" % total
+		"renew":
+			what = "Heals for %d over %d sec, %d per tick" % [total, s["duration"], total / s["ticks"]]
+		"penance":
+			what = "Each bolt heals for %d" % total
+		"prayer_of_mending":
+			what = "Heals for %d on each jump" % total
+		"lightwell":
+			what = "Each charge heals for %d over 6 sec" % total
+		"prayer_of_healing", "circle_of_healing":
+			what = "Heals each for %d" % total
+		_:
+			what = "Heals for %d" % total
+	var share := "%d%%" % int(round(coef * 100.0))
+	if id == "renew":
+		share += ", split over %d ticks" % s["ticks"]
+	elif id == "penance":
+		share += " per bolt"
+	var line := "[color=#ffffff]%s[/color]" % what
+	if power > 0.0:
+		line += " [color=#8a7262](+%d from %s, %s)[/color]" % [gain, "Spell Damage" if spell else "healing power", share]
+	else:
+		line += " [color=#8a7262](+%s of your %s)[/color]" % [share, "Spell Damage" if spell else "healing power"]
+	return line + "."
+
+
+func amount_text(id: String) -> String:
+	return spell_text(id, level, heal_power, spell_power, heal_mult, talents)
 
 
 func _resolve(id: String, target) -> void:
@@ -622,7 +689,7 @@ func _resolve(id: String, target) -> void:
 		"smite":
 			var e: Unit = target if target != null and target.alive else _enemy_target()
 			if e != null:
-				var dmg: float = s["amount"] * u * smite_mult * (1.0 + _tv("twin_disciplines") / 100.0) * rng.randf_range(0.9, 1.1)
+				var dmg: float = spell_amount(id, level, heal_power, spell_power, heal_mult, talents) * rng.randf_range(0.9, 1.1)
 				var smite_crit := rng.randf() < crit + (0.25 if _focus_crit else 0.0)
 				if smite_crit:
 					dmg *= 1.5
@@ -632,7 +699,7 @@ func _resolve(id: String, target) -> void:
 					label = "Smite (Windfury)"
 				_damage_enemy(e, dmg, priest, label, smite_crit)
 		"shield":
-			var amt: float = _base_heal(id) * (1.0 + _tv("improved_shield") / 100.0)
+			var amt: float = _base_heal(id)
 			target.remove("pws")
 			target.auras.append({"id": "pws", "name": "Power Word: Shield", "remaining": 30.0, "absorb": amt, "icon": "shield", "mine": true})
 			target.remove("weakened_soul")
@@ -1041,7 +1108,7 @@ func _tick_party(dt: float) -> void:
 	if targets.is_empty():
 		return
 	for m in party:
-		if not m.alive or m.is_priest or m.cc():
+		if not m.alive or m.is_priest or (m.cc() and not _break_free(m)):
 			continue
 		_tick_skills(m, targets, dt)
 		targets = alive_enemies()
@@ -1141,7 +1208,7 @@ func _second(m: Unit) -> float:
 func _tick_skills(m: Unit, targets: Array, dt: float) -> void:
 	m.skill_gcd -= dt
 	for sk in m.skills:
-		if sk["ready"] > time or sk["kind"] == "interrupt":
+		if sk["ready"] > time or sk["kind"] in ["interrupt", "break_cc"]:
 			continue
 		var reactive: bool = sk["kind"] in REACTIVE
 		if not reactive and m.skill_gcd > 0.0:
@@ -1340,6 +1407,18 @@ func _stun(m: Unit, sk: Dictionary, e: Unit) -> void:
 
 func _announce(m: Unit, sk: Dictionary) -> void:
 	combat_log.emit("guild", "%s uses [color=#%s]%s[/color]." % [m.name, LOG_GUILD, sk["name"]])
+
+
+## Will of the Forsaken: a feared or mind-controlled guildmate breaks free. Returns whether they did.
+func _break_free(m: Unit) -> bool:
+	var sk := _ready_skill(m, "break_cc")
+	if sk.is_empty():
+		return false
+	sk["ready"] = time + sk["cd"]
+	m.auras = m.auras.filter(func(a): return not a.get("cc", false))
+	floating.emit(m, sk["name"], "info")
+	_announce(m, sk)
+	return true
 
 
 func _ready_skill(m: Unit, kind: String) -> Dictionary:

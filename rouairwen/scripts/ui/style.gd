@@ -23,6 +23,7 @@ const C := {
 	"primary_hover": Color("c4321f"),
 	"guild": Color("3b2675"),
 	"guild_light": Color("ffd86b"),
+	"prestige": Color("d8a8ff"),
 }
 
 const HEADING_FONTS := ["Georgia", "Palatino Linotype", "Book Antiqua", "Times New Roman", "serif"]

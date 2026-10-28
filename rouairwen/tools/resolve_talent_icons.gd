@@ -1,5 +1,5 @@
 extends SceneTree
-## Looks up the WoW icon of every guildmate talent and ability on Wowhead (Classic first, then TBC and
+## Looks up the WoW icon of every guildmate talent and ability (grade spells included) on Wowhead (Classic first, then TBC and
 ## WotLK for later talents) and writes scripts/data/talent_icons.gd. Then run tools/fetch_icons.gd to
 ## download the icons. Run: godot --headless --path . --script res://tools/resolve_talent_icons.gd
 
@@ -44,11 +44,23 @@ func _run() -> void:
 			else:
 				talents[key] = icon
 	var abilities := {}
+	var known_abilities: Dictionary = (load(OUT) as Script).get_script_constant_map().get("ABILITIES", {}) if FileAccess.file_exists(OUT) else {}
 	for id in SpecTalents.ABILITIES:
 		for key in talents:
 			if String(key).ends_with("/" + id):
 				abilities[id] = talents[key]
 				break
+		# Grade spells aren't talents: look them up by name (a class's spell, or a racial).
+		if not abilities.has(id):
+			if known_abilities.has(id):
+				abilities[id] = known_abilities[id]
+				continue
+			var cls: String = SpecTalents.CLASS_SPELLS.find_key(id) if SpecTalents.CLASS_SPELLS.values().has(id) else ""
+			var icon := await _find(SpecTalents.ABILITIES[id]["name"], ClassData.class_name_of(cls) if cls != "" else "Racial")
+			if icon == "":
+				missing.append("ability " + id)
+			else:
+				abilities[id] = icon
 	var lines := ["class_name TalentIcons",
 		"## Icons of guildmate talents and abilities, looked up on Wowhead by tools/resolve_talent_icons.gd.",
 		"## Generated: change the talent trees, then run the tool again rather than editing this file.", "",

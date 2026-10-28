@@ -83,6 +83,17 @@ const ABILITIES := {
 	"shred": "spell_shadow_vampiricaura",
 	"ferocious_bite": "ability_druid_ferociousbite",
 	"tigers_fury": "ability_mount_jungletiger",
+	"recklessness": "ability_criticalstrike",
+	"searing_totem": "spell_fire_searingtotem",
+	"slice_and_dice": "ability_rogue_slicedice",
+	"volley": "ability_marksmanship",
+	"blizzard": "spell_frost_icestorm",
+	"drain_life": "spell_shadow_lifedrain02",
+	"rejuvenation": "spell_nature_rejuvenation",
+	"blood_fury": "racial_orc_berserkerstrength",
+	"berserking": "racial_troll_berserk",
+	"war_stomp": "ability_warstomp",
+	"will_of_the_forsaken": "spell_shadow_raisedead",
 }
 
 ## "<class>/<talent id>" -> icon name.

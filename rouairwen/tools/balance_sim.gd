@@ -33,6 +33,7 @@ func _init() -> void:
 	_talent_values()
 	_tier_odds()
 	_economy()
+	_prestige()
 	quit()
 
 
@@ -71,7 +72,7 @@ func _scenario(kind: String, level: int, tier: int, gear: float, diff: float) ->
 		var ps := Stats.compute_stats("priest", "priest", level, _gear("priest", "healing", level, gear))
 		var priest := {"name": "Bot", "talents": tal, "known": Spells.known(level, tal),
 			"max_hp": 100.0 * u * ps["health_mult"], "max_mana": 300.0 * u * ps["mana_mult"],
-			"regen": 6.0 * u * ps["regen_mult"], "heal_mult": ps["heal_mult"], "smite_mult": ps["offense"],
+			"regen": 6.0 * u * ps["regen_mult"], "heal_power": ps["heal_power"], "spell_power": ps["spell_power"],
 			"crit": ps["spell_crit"] / 100.0, "dodge": ps["dodge"], "mit": Stats.armor_factor("priest", level, ps["armor"])}
 		var size := 3 if kind == "quest" else (5 if kind == "dungeon" else 10)
 		var ftype := "pack"
@@ -170,9 +171,14 @@ func _member(sid: String, level: int, tier: int, gear: float, rng: RandomNumberG
 		("physical_agi" if cls in ["rogue", "hunter"] else "physical_str"))
 	var tal := SpecTalents.auto_build(sid, {}, level) if TALENTS else {}
 	var mods := _member_mods(sid, tal, rng)
+	# Grade B perk, and the class (A) and racial (S) spells
+	if tier >= Tiers.B:
+		SpecTalents.add_effects(mods, Tiers.B_PERKS[rng.randi() % Tiers.B_PERKS.size()][1])
+	var races: Array = ClassData.CLASSES[cls]["races"]
+	var grade := SpecTalents.grade_spells(cls, races[rng.randi() % races.size()], tier)
 	var st := Stats.compute_stats(cls, kind, level, _gear(cls, profile, level, gear), mods)
 	return CombatEngine.member_spec(sid, sid, Tiers.power(tier), st, mods,
-		SpecTalents.abilities_for(sid, tal, mods) if ABILITIES else [], level)
+		SpecTalents.abilities_for(sid, tal, mods, grade) if ABILITIES else [], level)
 
 
 ## Reference gear: `gear` is what the old gear bonus was (0.4 = a full set of at-level greens).
@@ -257,3 +263,58 @@ func _economy() -> void:
 				hc = "hall %d: %s" % [h, Balance.money(Balance.hall_cost(h))]
 		if l % 6 == 0 or hc != "" or l == 1:
 			print(" %2d   | %10s  %8.0f  %8.1f  %10s  %s" % [l, Balance.money(Balance.income(l)), fights, fights * 65.0 / 3600.0, Balance.money(int(gold)), hc])
+
+
+## How long the prestige ladder takes. A level-60 guild of nine grade-A guildmates (the recruitment
+## cap) farms the best raid its grades allow (as in the raid rows above), and trains its lowest
+## guildmate whenever its prestige allows. Gear is assumed to keep up with the grades.
+func _prestige() -> void:
+	const SEC_PER_KILL := 190.0  # ~2 min fights, the time between them, and the odd wipe
+	const PLAY_SHARE := 0.85  # the rest of the time goes to dungeons, missions and Orgrimmar
+	var need := {"zg": Tiers.A, "mc": Tiers.A, "ony": Tiers.A, "bwl": 13, "aq40": 15, "naxx": 17}
+	var tiers := []
+	for i in 9:
+		tiers.append(Tiers.A)
+	var points := 0.0
+	var total := 0.0
+	var hours := 0.0
+	var dt := 0.05
+	var next_print := 5.0
+	var reached := {}
+	var goals := {"#10": Prestige.rival_score(9), "#5": Prestige.rival_score(4), "#2": Prestige.rival_score(1), "#1": Prestige.TOP + 1}
+	print("\nprestige model: %.0f s per boss kill, %d%% of play time raiding" % [SEC_PER_KILL, int(PLAY_SHARE * 100)])
+	print("hours | raid  team grades       earned  rank")
+	while hours < 80.0:
+		var mean := 0.0
+		for t in tiers:
+			mean += t / 9.0
+		var best := ""
+		var rate := 0.0
+		for r in Raids.LIST:
+			if mean + 0.01 >= need[r["id"]]:
+				var per_hour: float = Prestige.for_clear(r) / float(r["bosses"].size()) * 3600.0 / SEC_PER_KILL * PLAY_SHARE
+				if per_hour > rate:
+					rate = per_hour
+					best = r["id"]
+		points += rate * dt
+		total += rate * dt
+		hours += dt
+		while true:
+			var low := 0
+			for i in tiers.size():
+				if tiers[i] < tiers[low]:
+					low = i
+			var cost := Tiers.train_prestige(tiers[low])
+			if Tiers.is_max(tiers[low]) or points < cost:
+				break
+			points -= cost
+			tiers[low] += 1
+		for g in goals:
+			if not reached.has(g) and total >= goals[g]:
+				reached[g] = hours
+		if hours >= next_print:
+			next_print += 5.0
+			print(" %4.0f | %-5s %-18s %6.0f  #%d" % [hours, best, Tiers.name_of(int(floor(mean))) + " to " + Tiers.name_of(tiers.max()),
+				total, Prestige.rank(int(total))])
+	for g in goals:
+		print("rank %s (%d prestige) after %.1f hours" % [g, goals[g], reached.get(g, -1.0)])

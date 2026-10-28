@@ -3,6 +3,8 @@ extends TipButton
 ## A spell on the action bar: icon, keybind, cooldown sweep, and a tint when out of mana.
 
 var spell_id := ""
+## The key binding it shows (Settings.keys), and that binding's short label.
+var action := ""
 var key := ""
 var engine: CombatEngine
 var spell_icon: SpellIcon
@@ -10,9 +12,10 @@ var overlay: Control
 var is_potion := false
 
 
-func setup(p_id: String, p_key: String, p_engine: CombatEngine, level: int) -> ActionButton:
+func setup(p_id: String, p_action: String, p_engine: CombatEngine, level: int) -> ActionButton:
 	spell_id = p_id
-	key = p_key
+	action = p_action
+	key = Settings.key_short(action)
 	engine = p_engine
 	custom_minimum_size = Vector2(54, 54)
 	var empty := StyleBoxEmpty.new()
@@ -30,18 +33,22 @@ func setup(p_id: String, p_key: String, p_engine: CombatEngine, level: int) -> A
 	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	overlay.draw.connect(_draw_overlay)
 	add_child(overlay)
+	var key_line := "\n[color=#8a7262]Key: %s[/color]" % Settings.key_label(action) if key != "" else ""
 	if is_potion:
-		set_tip("[b]Mana Potion[/b]\nDrink your best mana potion. 60s cooldown.\n[color=#8a7262]Key: F[/color]")
+		set_tip("[b]Mana Potion[/b]\nDrink your best mana potion. 60s cooldown.%s" % key_line)
 	else:
 		var s: Dictionary = Spells.BOOK[p_id]
 		var cast_txt := "Instant" if s["cast"] == 0.0 else ("Channeled (%.1f sec)" % s["cast"] if s.get("channel", 0) else "%.1f sec cast" % s["cast"])
 		var cd := "\n%d sec cooldown" % int(s["cooldown"]) if s.has("cooldown") else ""
-		set_tip("[b]%s[/b]\n%d Mana\n%s%s\n[color=#ffd100]%s[/color]\n[color=#8a7262]Key: %s[/color]" % [Spells.display_name(p_id, level),
-			int(s["mana"] * Balance.scale(level)), cast_txt, cd, s["desc"], p_key])
+		var amount := engine.amount_text(p_id)
+		set_tip("[b]%s[/b]\n%d Mana\n%s%s\n[color=#ffd100]%s[/color]%s%s" % [Spells.display_name(p_id, level),
+			int(engine.spell_cost(p_id)), cast_txt, cd, s["desc"], "\n" + amount if amount != "" else "", key_line])
 	return self
 
 
 func _process(_d: float) -> void:
+	# Bindings can change from the pause menu's options.
+	key = Settings.key_short(action)
 	overlay.queue_redraw()
 
 

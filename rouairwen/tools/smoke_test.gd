@@ -15,11 +15,18 @@ func run() -> void:
 	shot_dir = ProjectSettings.globalize_path("user://smoke_shots")
 	DirAccess.make_dir_recursive_absolute(shot_dir)
 	Game.save_path = "user://smoke_save.txt"
+	# Plays at normal experience whatever the options say (not saved, so the player's choice stays).
+	Settings.xp_boost = false
 	# A fixed seed makes every run play the same fights, so a failure is reproducible.
 	Game.rng.seed = 20261027
 	await _frames(5)
 	await _shot("01_title")
 	Game.new_game()
+	Settings.xp_boost = true
+	_check(Game._grant(1, 0, [])["xp"] == Settings.XP_BOOST, "the testing option multiplies experience")
+	Settings.xp_boost = false
+	Game.data["priest"]["xp"] = 0
+	_check_coefficients()
 	_check(Game.members().all(func(m): return m["traits"].size() == 2 and m["affixes"].is_empty()), "founders have 2 traits and no affixes")
 	_check(Game.data["recruits"].all(func(c): return c["traits"].size() == 2 and c["affixes"].size() <= 2), "recruits have 2 traits and up to 2 affixes")
 	_check(UnitFrame.aura_tooltip({"id": "dot_x", "name": "Shadow Word: Pain", "dot": 12.0, "period": 3.0, "remaining": 9.0,
@@ -32,10 +39,19 @@ func run() -> void:
 	frame.free()
 	main.show_hub()
 	await _frames(3)
-	for p in ["quests", "guild", "character", "dungeons", "raids", "recruit", "shop", "missions", "hall", "talents"]:
+	var cap_rng := RandomNumberGenerator.new()
+	var rolls := []
+	for i in 2000:
+		rolls.append(Tiers.roll(10, cap_rng))
+	_check(rolls.max() == Tiers.A, "the best guild hall recruits up to grade A, no higher")
+	for p in ["quests", "guild", "character", "dungeons", "raids", "prestige", "recruit", "shop", "missions", "hall", "talents"]:
 		main.screen.open_page(p)
 		await _frames(3)
 		await _shot("02_hub_" + p)
+	main.open_options()
+	await _frames(3)
+	await _shot("02_options")
+	main.close_overlay()
 	if "--ui-only" in OS.get_cmdline_user_args():
 		await _ui_only()
 		return
@@ -76,6 +92,7 @@ func run() -> void:
 	Game.auto_member_talents(tm)
 	_check(SpecTalents.spent(tm["talents"]) == SpecTalents.points_at(24), "recommended build refills the tree")
 	_check(Game.members().all(func(m): return not Game.member_abilities(m).is_empty()), "every guildmate has abilities from talents")
+	_check_training(Game.members()[1])
 	var st := Game.member_stats(Game.members()[2])
 	_check(st["str"] > 0.0 and st["sta"] > 0.0 and st["armor"] > 0.0 and st["attack_power"] > 0.0,
 		"guildmate stats are computed (Str %d, Sta %d, AP %d, armor %d)" % [st["str"], st["sta"], st["attack_power"], st["armor"]])
@@ -128,7 +145,14 @@ func run() -> void:
 	await _shot("05_guild_geared")
 	main.show_hub("talents")
 	await _frames(3)
+	await _check_action_bar()
+	await _frames(3)
 	await _shot("05_talents")
+	main.open_key_bindings()
+	await _frames(3)
+	await _shot("05_key_bindings")
+	main.close_overlay()
+	Game.reset_action_bar()
 
 	var d := Dungeons.by_id("wc")
 	var run_act := Activities.make_dungeon(d, Game.level(), Game.rng)
@@ -157,6 +181,7 @@ func run() -> void:
 		m["spec"] = comp[i]
 		m["class"] = ClassData.class_of(comp[i])
 		m["tier"] = 11
+		Game._grade_perk(m)
 		m["gear"] = {}
 		Game.auto_member_talents(m)
 	for m in [Game.priest()] + Game.members():
@@ -169,10 +194,21 @@ func run() -> void:
 			if Items.can_use(it, Game.member_class(m)):
 				m["gear"][slot] = it
 	var r := Raids.by_id("mc")
+	var prestige_before := Game.prestige_total()
 	Game.start_run(Activities.make_raid(r, [], Game.rng), _ids(9))
 	main.start_combat()
 	await _play_run("07_raid")
 	_check(Game.data["raid_clears"].get("ony", 0) + int(Game.data["raid_progress"].has("ony")) >= 0, "raid flow finished")
+	_check(Game.prestige_total() > prestige_before, "raid bosses grant prestige (%d, rank #%d)" % [Game.prestige_total() - prestige_before,
+		Prestige.rank(Game.prestige_total())])
+	main.show_hub("prestige")
+	await _frames(3)
+	await _shot("08_prestige")
+	main.screen.recruit_tab = "training"
+	main.screen.open_page("recruit")
+	await _frames(3)
+	await _shot("08_training")
+	main.screen.recruit_tab = "recruits"
 
 	# Save / load round trip
 	Game.save()
@@ -187,6 +223,8 @@ func run() -> void:
 	Game.members()[2]["class"] = "priest"
 	var priest_name: String = Game.members()[2]["name"]
 	Game.data["quests"][0]["rewards"] = {"xp": 10, "gold": 10, "items": []}
+	Game.data.erase("prestige")
+	Game.data["raid_clears"]["mc"] = 2
 	var old: Dictionary = Game.members()[0]
 	old["talent_version"] = 1
 	old["talents"] = {"old_talent": 3}
@@ -196,6 +234,7 @@ func run() -> void:
 	old = Game.members()[0]
 	_check(old["talent_version"] == Game.TALENT_VERSION and not old["talents"].has("old_talent") \
 		and SpecTalents.spent(old["talents"]) == SpecTalents.points_at(Game.level()), "old guildmate talents were rebuilt in the new trees")
+	_check(Game.prestige_total() >= 2 * Prestige.for_clear(Raids.by_id("mc")), "an old save earns prestige for its past raid clears")
 	_check(Game.members()[1]["spec"] == "shaman_elemental", "restoration shaman retrained as elemental")
 	_check(Game.members().filter(func(m): return m["name"] == priest_name).is_empty(), "guildmate priest left the guild")
 	_check(Game.data["quests"].all(func(q): return q["rewards"].has("gold_min")), "old quests were replaced")
@@ -287,6 +326,106 @@ func _play_run(tag: String) -> void:
 	_check(false, "run %s finished within the retry budget" % tag)
 	Game.finish_run(false)
 	main.show_hub()
+
+
+## WoW-style coefficients: each heal adds its share of healing power, Renew 100% split over its ticks.
+func _check_coefficients() -> void:
+	var gain := func(id: String, tal := {}) -> float:
+		return CombatEngine.spell_amount(id, 40, 1000.0, 0.0, 1.0, tal) - CombatEngine.spell_amount(id, 40, 0.0, 0.0, 1.0, tal)
+	_check(is_equal_approx(gain.call("renew"), 1000.0), "Renew adds 100% of healing power over its ticks")
+	_check(is_equal_approx(gain.call("heal"), 1000.0 * 2.5 / 3.5) and is_equal_approx(gain.call("flash_heal"), 1000.0 * 1.5 / 3.5),
+		"direct heals add cast time / 3.5 of healing power")
+	_check(is_equal_approx(gain.call("heal", {"empowered_healing": 5}), 1000.0 * (2.5 / 3.5 + 0.4)), "Empowered Healing raises Heal's coefficient")
+	_check(gain.call("smite") == 0.0 and CombatEngine.spell_amount("smite", 40, 0.0, 1000.0, 1.0, {}) > CombatEngine.spell_amount("smite", 40, 0.0, 0.0, 1.0, {}),
+		"Smite gains from Spell Damage only")
+	var green := Stats.compute_stats("priest", "priest", 50, Stats.reference_gear_stats("healing", 50))
+	_check(absf(green["heal_mult"] - 1.434) < 0.01, "at-level greens still make Lesser Heal 43%% bigger (%.3f)" % green["heal_mult"])
+
+
+## Spell order and key bindings: moving a spell, new spells at the end, swapped keys, modifiers.
+func _check_action_bar() -> void:
+	var bar := Game.action_bar()
+	Game.move_spell(bar[-1], 0)
+	var moved := Game.action_bar()
+	_check(moved[0] == bar[-1] and moved.size() == bar.size() and Game.priest_combat_spec({})["known"] == moved,
+		"a spell moved to the first action bar slot (%s)" % moved[0])
+	Game.priest()["talents"]["inner_focus"] = 1
+	_check(Game.action_bar()[-1] == "inner_focus", "a newly learned spell goes at the end of a rearranged bar")
+	Game.priest()["talents"].erase("inner_focus")
+	# Drag the spellbook's first spell onto the third (events pushed into the game, not the real mouse).
+	await _frames(2)
+	var rows: Array = main.screen.find_children("*", "PanelContainer", true, false).filter(
+		func(c): return c.mouse_default_cursor_shape == Control.CURSOR_DRAG)
+	var before := Game.action_bar()
+	if rows.size() >= 3:
+		var from: Vector2 = rows[0].get_global_rect().get_center()
+		var to: Vector2 = rows[2].get_global_rect().get_center()
+		await _push_mouse(from, true, MOUSE_BUTTON_MASK_LEFT)
+		for k in range(1, 9):
+			await _push_motion(from.lerp(to, k / 8.0), from.lerp(to, (k - 1) / 8.0))
+		await _push_mouse(to, false, 0)
+		await _frames(3)
+	_check(Game.action_bar()[2] == before[0], "dragging a spell in the spellbook moves it (%s now in slot 3)" % Game.action_bar()[2])
+	var keys: Dictionary = Settings.keys.duplicate()
+	Settings.reset_keys()
+	Settings.bind("slot1", KEY_2)
+	_check(Settings.keys["slot1"] == KEY_2 and Settings.keys["slot2"] == KEY_1, "binding a key in use swaps the two")
+	var ev := InputEventKey.new()
+	ev.physical_keycode = KEY_2
+	_check(Settings.action_for(Settings.event_code(ev)) == "slot1", "a key press finds its action")
+	Settings.bind("potion", KEY_MASK_SHIFT | KEY_1)
+	ev.physical_keycode = KEY_1
+	ev.shift_pressed = true
+	_check(Settings.action_for(Settings.event_code(ev)) == "potion" and Settings.key_short("potion") == "s-1", "Shift combinations bind (%s)" % Settings.key_label("potion"))
+	_check(Settings.reserved(KEY_ESCAPE) and Settings.reserved(KEY_SHIFT), "Escape and lone modifiers can't be bound")
+	# Leave the player's own bindings as they were (nothing here is saved).
+	Settings.keys = keys
+	await _frames(1)
+
+
+func _push_mouse(at: Vector2, pressed: bool, mask: int) -> void:
+	var ev := InputEventMouseButton.new()
+	ev.button_index = MOUSE_BUTTON_LEFT
+	ev.pressed = pressed
+	ev.button_mask = mask
+	ev.position = at
+	ev.global_position = at
+	get_viewport().push_input(ev, true)
+	await _frames(1)
+
+
+func _push_motion(at: Vector2, last: Vector2) -> void:
+	var ev := InputEventMouseMotion.new()
+	ev.button_mask = MOUSE_BUTTON_MASK_LEFT
+	ev.position = at
+	ev.global_position = at
+	ev.relative = at - last
+	get_viewport().push_input(ev, true)
+	await _frames(1)
+
+
+## Trains a guildmate from their grade to S: gold up to A, prestige past it, unlocks at B, A and S.
+func _check_training(m: Dictionary) -> void:
+	var start: int = m["tier"]
+	var gold_before := Game.gold()
+	Game.train(m)
+	_check(m["tier"] == start + 1 and Game.gold() < gold_before, "training raises a grade for gold (%s to %s)" % [
+		Tiers.name_of(start), Tiers.name_of(m["tier"])])
+	while m["tier"] < Tiers.A:
+		Game.train(m)
+	var ids := Game.member_abilities(m).map(func(a): return a["id"])
+	_check(m.has("grade_perk") and SpecTalents.CLASS_SPELLS[m["class"]] in ids,
+		"grade B gave %s and grade A taught %s" % [m.get("grade_perk", ["nothing"])[0], SpecTalents.CLASS_SPELLS[m["class"]]])
+	Game.data["prestige"] = {"points": 0, "total": 0}
+	Game.train(m)
+	_check(m["tier"] == Tiers.A, "training past A needs prestige")
+	Game.add_prestige(Tiers.train_prestige(Tiers.A) + Tiers.train_prestige(Tiers.A + 1))
+	Game.train(m)
+	Game.train(m)
+	ids = Game.member_abilities(m).map(func(a): return a["id"])
+	_check(m["tier"] == Tiers.S and Game.prestige() == 0 and SpecTalents.RACE_SPELLS[m["race"]] in ids,
+		"prestige trained to S, which taught %s" % SpecTalents.RACE_SPELLS[m["race"]])
+	Game.data["prestige"] = {"points": 0, "total": 0}
 
 
 func _count_log(category: String, _text: String) -> void:

@@ -1,9 +1,10 @@
 class_name Raids
 ## Ten-player raids at level 60, cleared boss by boss (progress is kept until the last boss dies).
-## "tier" is the armor tier set the bosses drop; loot defaults to epic quality.
+## "tier" is the armor tier set the bosses drop; loot defaults to epic quality. "prestige" is what each
+## boss is worth (the final boss double, see Prestige).
 
 const LIST := [
-	{"id": "zg", "name": "Zul'Gurub", "ilvl": 65, "diff": 2.2, "tier": -1, "requires": "",
+	{"id": "zg", "name": "Zul'Gurub", "ilvl": 65, "diff": 2.2, "prestige": 3, "tier": -1, "requires": "",
 		"sky": Color("2a6a4a"), "ground": Color("1a3a1a"),
 		"bosses": [
 			{"name": "High Priestess Jeklik", "abilities": ["fear:Sonic Burst", "aoe:Fire Bomb", "heal:Great Heal", "summon:Bloodseeker Bat"],
@@ -21,7 +22,7 @@ const LIST := [
 					["Touch of Chaos", "weapon", "spell", "wand"], ["Cloak of Consumption", "back", "spell", "cloth"], ["Soul Corrupter's Necklace", "neck", "spell", ""],
 					["Aegis of the Blood God", "trinket", "tank", ""], ["Hakkari Loa Cloak", "back", "healing", "cloth"]]},
 		]},
-	{"id": "mc", "name": "Molten Core", "ilvl": 66, "diff": 2.6, "tier": 1, "requires": "",
+	{"id": "mc", "name": "Molten Core", "ilvl": 66, "diff": 2.6, "prestige": 4, "tier": 1, "requires": "",
 		"sky": Color("a03a10"), "ground": Color("2a0a04"),
 		"bosses": [
 			{"name": "Lucifron", "abilities": ["curse:Lucifron's Curse", "magic_dot:Impending Doom", "summon:Flamewaker Protector"],
@@ -46,7 +47,7 @@ const LIST := [
 					["Shard of the Flame", "trinket", "healing", ""], ["Essence of the Pure Flame", "trinket", "tank", ""], ["Perdition's Blade", "weapon", "physical", "dagger"]],
 				"legendary": [["Sulfuras, Hand of Ragnaros", "weapon", "physical", "mace"]]},
 		]},
-	{"id": "ony", "name": "Onyxia's Lair", "ilvl": 71, "diff": 2.7, "tier": 2, "tier_slots": ["head"], "requires": "",
+	{"id": "ony", "name": "Onyxia's Lair", "ilvl": 71, "diff": 2.7, "prestige": 2, "tier": 2, "tier_slots": ["head"], "requires": "",
 		"sky": Color("5a3a3a"), "ground": Color("1a1010"),
 		"bosses": [
 			{"name": "Onyxia", "final": true, "abilities": ["aoe:Deep Breath", "cleave:Flame Breath", "fear:Bellowing Roar", "summon:Onyxian Whelp"],
@@ -54,7 +55,7 @@ const LIST := [
 					["Deathbringer", "weapon", "physical", "axe"], ["Ancient Cornerstone Grimoire", "trinket", "spell", ""], ["Shard of the Scale", "neck", "healing", ""],
 					["Eskhandar's Collar", "neck", "physical", ""]]},
 		]},
-	{"id": "bwl", "name": "Blackwing Lair", "ilvl": 75, "diff": 3.1, "tier": 2, "requires": "mc",
+	{"id": "bwl", "name": "Blackwing Lair", "ilvl": 75, "diff": 3.1, "prestige": 6, "tier": 2, "requires": "mc",
 		"sky": Color("4a1a2a"), "ground": Color("1a0810"),
 		"bosses": [
 			{"name": "Razorgore the Untamed", "abilities": ["aoe:Fireball Volley", "summon:Blackwing Legionnaire", "fear:Conflagration"],
@@ -80,7 +81,7 @@ const LIST := [
 					["Pure Elementium Band", "finger", "healing", ""], ["Therazane's Link", "waist", "physical", "mail"], ["Cloak of the Brood Lord", "back", "spell", "cloth"],
 					["Archimtiros' Ring of Reckoning", "finger", "tank", ""]]},
 		]},
-	{"id": "aq40", "name": "Temple of Ahn'Qiraj", "ilvl": 78, "diff": 3.6, "tier": 3, "requires": "bwl",
+	{"id": "aq40", "name": "Temple of Ahn'Qiraj", "ilvl": 78, "diff": 3.6, "prestige": 8, "tier": 3, "requires": "bwl",
 		"sky": Color("b08040"), "ground": Color("3a2a10"),
 		"bosses": [
 			{"name": "The Prophet Skeram", "abilities": ["aoe:Arcane Explosion", "hex:True Fulfillment", "summon:Image of Skeram"],
@@ -105,7 +106,7 @@ const LIST := [
 					["Scepter of the False Prophet", "weapon", "healing", "mace"], ["Belt of Never-ending Agony", "waist", "physical", "leather"], ["Mark of C'Thun", "neck", "tank", ""],
 					["Gauntlets of Annihilation", "hands", "physical", "plate"]]},
 		]},
-	{"id": "naxx", "name": "Naxxramas", "ilvl": 86, "diff": 4.1, "tier": 4, "requires": "aq40",
+	{"id": "naxx", "name": "Naxxramas", "ilvl": 86, "diff": 4.1, "prestige": 10, "tier": 4, "requires": "aq40",
 		"sky": Color("3a4a6a"), "ground": Color("0a1018"),
 		"bosses": [
 			{"name": "Anub'Rekhan", "abilities": ["aoe:Impale", "poison:Locust Swarm", "summon:Crypt Guard"],

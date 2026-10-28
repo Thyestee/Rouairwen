@@ -8,7 +8,8 @@ const NAV := [
 	["quests", "Quest Board", "Valley of Strength"],
 	["dungeons", "Dungeons", "Cleft of Shadow"],
 	["raids", "Raids", "Grommash Hold"],
-	["recruit", "Recruitment", "Valley of Honor"],
+	["prestige", "Prestige", "Hall of Legends"],
+	["recruit", "Recruitment", "Recruit & train"],
 	["shop", "Supplies", "The Drag"],
 	["missions", "Guild Missions", "The War Table"],
 	["hall", "Guild Hall", "Upgrades & chronicle"],
@@ -26,6 +27,7 @@ var selected_raid := ""
 var selected_member = "priest"
 var bank_filter := true
 var sheet_tab := "stats"
+var recruit_tab := "recruits"
 
 
 func _ready() -> void:
@@ -47,7 +49,7 @@ func _ready() -> void:
 	var nav_panel := Style.panel(Color(0.08, 0.03, 0.02, 0.9), Style.C["border"], 2, 8)
 	nav_panel.custom_minimum_size.x = 210
 	body.add_child(nav_panel)
-	nav_box = Style.vbox(6)
+	nav_box = Style.vbox(4)
 	nav_panel.add_child(nav_box)
 	var content_panel := Style.panel(Color(0.09, 0.035, 0.025, 0.9), Style.C["border"], 2, 0)
 	content_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -98,6 +100,11 @@ func refresh() -> void:
 			content.add_child(_raids_page())
 		"recruit":
 			content.add_child(_recruit_page())
+		"prestige":
+			var pp := PrestigePage.new()
+			pp.hub = self
+			content.add_child(pp)
+			pp.rebuild()
 		"shop":
 			content.add_child(_shop_page())
 		"character":
@@ -166,7 +173,7 @@ func _build_nav() -> void:
 		var b := Button.new()
 		b.toggle_mode = true
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		b.custom_minimum_size = Vector2(0, 44)
+		b.custom_minimum_size = Vector2(0, 42)
 		b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		b.focus_mode = Control.FOCUS_NONE
 		b.pressed.connect(open_page.bind(n[0]))
@@ -174,7 +181,7 @@ func _build_nav() -> void:
 		v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		v.offset_left = 12
-		v.offset_top = 3
+		v.offset_top = 1
 		var l1 := Style.label(n[1], 16, Style.C["text"])
 		l1.add_theme_font_override("font", Style.bold_font())
 		l1.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -196,12 +203,14 @@ func _update_nav() -> void:
 		var b: Button = nav_buttons[id]
 		b.button_pressed = id == page
 		var sub: Label = b.get_meta("sub")
-		var locked: bool = (id == "dungeons" and Game.level() < 10) or (id == "raids" and Game.level() < Balance.MAX_LEVEL)
+		var locked: bool = (id == "dungeons" and Game.level() < 10) or (id in ["raids", "prestige"] and Game.level() < Balance.MAX_LEVEL)
 		b.modulate = Color(1, 1, 1, 0.55) if locked else Color.WHITE
 		if id == "dungeons" and locked:
 			sub.text = "Opens at level 10"
-		elif id == "raids" and locked:
+		elif id in ["raids", "prestige"] and locked:
 			sub.text = "Opens at level 60"
+		elif id == "prestige":
+			sub.text = "Rank #%d · %d to spend" % [Prestige.rank(Game.prestige_total()), Game.prestige()]
 		elif id == "talents" and Game.talent_points_free() > 0:
 			sub.text = "%d point(s) to spend!" % Game.talent_points_free()
 		else:
@@ -286,7 +295,7 @@ func _quest_card(q: Dictionary) -> Control:
 		flist.append(("[color=#ffb040]%s[/color]" % f["label"]) if f["type"] == "elite" else f["label"])
 	v.add_child(Style.rich("[color=#c09f86]%d fight%s:[/color] %s" % [fights.size(), "" if fights.size() == 1 else "s", ", ".join(flist)], 13))
 	var rw: Dictionary = q["rewards"]
-	v.add_child(Style.rich("[color=#c09f86]Rewards:[/color] %s XP and %s – %s" % [Balance.big(rw["xp"]), Balance.money_bb(rw["gold_min"]), Balance.money_bb(rw["gold_max"])], 13))
+	v.add_child(Style.rich("[color=#c09f86]Rewards:[/color] %s XP and %s – %s" % [Balance.big(rw["xp"] * Settings.xp_rate()), Balance.money_bb(rw["gold_min"]), Balance.money_bb(rw["gold_max"])], 13))
 	var n_txt := "%d" % rw["items_min"] if rw["items_min"] == rw["items_max"] else "%d–%d" % [rw["items_min"], rw["items_max"]]
 	var odds := "[color=#0070dd]%d%% rare[/color]" % int(round(rw["rare_chance"] * 100.0))
 	if rw["epic_chance"] > 0.0:
@@ -480,8 +489,24 @@ func _do_reset_raid(id: String) -> void:
 # ---------------------------------------------------------------- recruitment
 
 func _recruit_page() -> Control:
-	var v := _page("Recruitment", "Adventurers answer the guild's notice in the Valley of Honor. A better guild hall attracts better grades, from F up to SSS+.")
+	var v := _page("Recruitment", "Adventurers answer the guild's notice in the Valley of Honor. A better guild hall attracts better grades, " +
+		"up to A. Past A, guildmates only improve through training.")
 	var head: Control = v.get_node("Head")
+	var group := ButtonGroup.new()
+	for tab in [["recruits", "Recruits"], ["training", "Training"]]:
+		var tb := Style.button(tab[1])
+		tb.toggle_mode = true
+		tb.button_group = group
+		tb.button_pressed = recruit_tab == tab[0]
+		tb.custom_minimum_size.x = 110
+		tb.pressed.connect(_recruit_tab.bind(tab[0]))
+		head.add_child(tb)
+	if recruit_tab == "training":
+		var tp := TrainingPage.new()
+		tp.hub = self
+		v.add_child(tp)
+		tp.rebuild()
+		return v
 	head.add_child(Style.button("Post a new notice (%s)" % Balance.money(Balance.recruit_refresh_cost(Game.level())), Game.refresh_recruits.bind(true)))
 	v.add_child(Style.rich("[color=#c09f86]Guild:[/color] %d / %d members    [color=#c09f86]Hall:[/color] %s    %s" % [
 		Game.members().size() + 1, Game.MAX_GUILD, Balance.HALL_NAMES[Game.hall()], _odds_text(Game.hall())], 14))
@@ -495,23 +520,28 @@ func _recruit_page() -> Control:
 	return v
 
 
+func _recruit_tab(tab: String) -> void:
+	recruit_tab = tab
+	refresh()
+
+
 func _odds_text(hall: int) -> String:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hall * 31
 	var n := 4000
+	var b := 0
 	var a := 0
-	var s := 0
-	var best := 0
 	for i in n:
 		var t := Tiers.roll(hall, rng)
-		if t >= 10:
+		if t >= Tiers.B:
+			b += 1
+		if t >= Tiers.A:
 			a += 1
-		if t >= 12:
-			s += 1
-		best = maxi(best, t)
-	return "[color=#c09f86]Typical grade:[/color] [color=#%s]%s[/color]   [color=#c09f86]A or better:[/color] %.1f%%   [color=#c09f86]S or better:[/color] %.1f%%   [color=#c09f86]Best possible:[/color] [color=#%s]%s[/color]" % [
-		Tiers.color_of(int(round(Tiers.mean_for_hall(hall)))).to_html(false), Tiers.name_of(int(round(Tiers.mean_for_hall(hall)))),
-		100.0 * a / n, 100.0 * s / n, Tiers.color_of(Tiers.cap_for_hall(hall)).to_html(false), Tiers.name_of(Tiers.cap_for_hall(hall))]
+	var typical := mini(int(round(Tiers.mean_for_hall(hall))), Tiers.cap_for_hall(hall))
+	var cap := Tiers.cap_for_hall(hall)
+	return "[color=#c09f86]Typical grade:[/color] [color=#%s]%s[/color]   [color=#c09f86]B or better:[/color] %.1f%%   [color=#c09f86]A:[/color] %.1f%%   [color=#c09f86]Best possible:[/color] [color=#%s]%s[/color]" % [
+		Tiers.color_of(typical).to_html(false), Tiers.name_of(typical), 100.0 * b / n, 100.0 * a / n,
+		Tiers.color_of(cap).to_html(false), Tiers.name_of(cap)]
 
 
 func _candidate_card(c: Dictionary, index: int) -> Control:

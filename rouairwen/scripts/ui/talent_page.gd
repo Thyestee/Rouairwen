@@ -114,33 +114,35 @@ func _talent_cell(tal: Dictionary, tree_id: String, talents: Dictionary) -> Cont
 	return v
 
 
+## The spells in action bar order: drag one (or use its arrows) to give it another slot and key.
 func _spellbook() -> Control:
 	var p := Style.panel(Color(0.14, 0.06, 0.04, 0.92), Color("6a2414"), 2, 12)
-	p.custom_minimum_size.x = 330
+	p.custom_minimum_size.x = 360
 	var v := Style.vbox(6)
 	p.add_child(v)
-	v.add_child(Style.title("Spellbook", 22))
-	v.add_child(Style.label("Hover a party frame and press the key to cast on it, or click a frame to target it. F drinks a mana potion, Space pauses.", 12, Style.C["muted"]))
-	v.get_child(1).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	var list := Style.vbox(6)
-	var known := Spells.known(Game.level(), Game.priest()["talents"])
-	for i in known.size():
-		var id: String = known[i]
-		var s: Dictionary = Spells.BOOK[id]
-		var h := Style.hbox(8)
-		var ic := SpellIcon.new(s["icon"], WowIcons.spell(id, Game.level()))
-		ic.custom_minimum_size = Vector2(36, 36)
-		ic.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-		h.add_child(ic)
-		var tv := Style.vbox(0)
-		tv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var cast_txt := "Instant" if s["cast"] == 0.0 else ("Channeled %.1fs" % s["cast"] if s.get("channel", 0) else "%.1fs cast" % s["cast"])
-		tv.add_child(Style.rich("[b]%s[/b]  [color=#8a7262][%s][/color]" % [Spells.display_name(id, Game.level()), Spells.key_label(i)], 14))
-		var d := Style.label("%s · %d mana. %s" % [cast_txt, int(s["mana"] * Balance.scale(Game.level())), s["desc"]], 12, Style.C["muted"])
-		d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		tv.add_child(d)
-		h.add_child(tv)
-		list.add_child(h)
+	var head := Style.hbox(8)
+	var t := Style.title("Spellbook", 22)
+	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(t)
+	head.add_child(Style.button("Key bindings", Callable(get_tree().current_scene, "open_key_bindings")))
+	v.add_child(head)
+	var keys := []
+	for a in Settings.ACTION_NAMES:
+		if Settings.key_label(a) != "":
+			keys.append("%s %s" % [Settings.key_label(a), "drinks a mana potion" if a == "potion" else "pauses"])
+	var help := Style.label("Drag a spell, or use its arrows, to move it to another action bar slot. Hover a party frame and press the key to cast on it, or click a frame to target it. %s." %
+		", ".join(keys), 12, Style.C["muted"])
+	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(help)
+	var list := Style.vbox(4)
+	var bar := Game.action_bar()
+	var ps := Game.priest_combat_spec({})
+	for i in bar.size():
+		list.add_child(_spell_row(bar[i], i, bar.size(), ps))
+	if Game.priest().has("bar"):
+		var rs := Style.button("Default order", Game.reset_action_bar)
+		rs.size_flags_horizontal = Control.SIZE_SHRINK_END
+		list.add_child(rs)
 	var upcoming := []
 	for id in Spells.ORDER:
 		var s: Dictionary = Spells.BOOK[id]
@@ -150,5 +152,64 @@ func _spellbook() -> Control:
 		var u := Style.label("Coming later: " + ", ".join(upcoming), 12, Style.C["dim"])
 		u.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		list.add_child(u)
-	v.add_child(Style.scroll(list))
+	var sc := Style.scroll(list)
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	v.add_child(sc)
 	return p
+
+
+## One spell of the bar: slot key, icon, what it does now, and arrows to move it.
+func _spell_row(id: String, i: int, count: int, ps: Dictionary) -> Control:
+	var s: Dictionary = Spells.BOOK[id]
+	var lvl := Game.level()
+	var row := PanelContainer.new()
+	row.add_theme_stylebox_override("panel", Style.box(Color(0, 0, 0, 0.22), Color(0.36, 0.17, 0.1), 1, 4, 5))
+	row.mouse_filter = Control.MOUSE_FILTER_STOP
+	row.mouse_default_cursor_shape = Control.CURSOR_DRAG
+	row.set_drag_forwarding(_drag_spell.bind(id, row), _can_drop_spell, _drop_spell.bind(i))
+	var h := Style.hbox(8)
+	row.add_child(h)
+	var ic := SpellIcon.new(s["icon"], WowIcons.spell(id, lvl))
+	ic.custom_minimum_size = Vector2(36, 36)
+	ic.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	h.add_child(ic)
+	var tv := Style.vbox(1)
+	tv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var cast_txt := "Instant" if s["cast"] == 0.0 else ("Channeled %.1fs" % s["cast"] if s.get("channel", 0) else "%.1fs cast" % s["cast"])
+	var key := Settings.key_label(Settings.slot_action(i)) if i < Settings.SLOTS else ""
+	var lines := ["[b]%s[/b]  [color=#8a7262][%s][/color]" % [Spells.display_name(id, lvl), key if key != "" else "no key"]]
+	var amount := CombatEngine.spell_text(id, lvl, ps["heal_power"], ps["spell_power"], 1.0, Game.priest()["talents"])
+	if amount != "":
+		lines.append("[font_size=12]%s[/font_size]" % amount)
+	lines.append("[font_size=12][color=#c09f86]%s · %d mana. %s[/color][/font_size]" % [cast_txt, int(s["mana"] * Balance.scale(lvl)), s["desc"]])
+	var d := Style.rich("\n".join(lines), 14)
+	d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	d.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tv.add_child(d)
+	h.add_child(tv)
+	var arrows := Style.vbox(2)
+	for step in [-1, 1]:
+		var b := Style.button("▲" if step < 0 else "▼", Game.move_spell.bind(id, i + step))
+		b.custom_minimum_size = Vector2(26, 22)
+		b.add_theme_font_size_override("font_size", 10)
+		b.disabled = i + step < 0 or i + step >= count
+		b.tooltip_text = "Move up a slot" if step < 0 else "Move down a slot"
+		arrows.add_child(b)
+	h.add_child(arrows)
+	return row
+
+
+func _drag_spell(_at: Vector2, id: String, row: Control) -> Variant:
+	var ic := SpellIcon.new(Spells.BOOK[id]["icon"], WowIcons.spell(id, Game.level()))
+	ic.size = Vector2(40, 40)
+	row.set_drag_preview(ic)
+	return {"spell": id}
+
+
+func _can_drop_spell(_at: Vector2, data) -> bool:
+	return data is Dictionary and data.has("spell")
+
+
+func _drop_spell(_at: Vector2, data, i: int) -> void:
+	Game.move_spell(data["spell"], i)

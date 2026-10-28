@@ -148,16 +148,34 @@ const ABILITIES := {
 	"shred": {"name": "Shred", "kind": "strike", "cd": 4.0, "coef": 0.9},
 	"ferocious_bite": {"name": "Ferocious Bite", "kind": "execute", "cd": 10.0, "coef": 2.2, "at": 0.35},
 	"tigers_fury": {"name": "Tiger's Fury", "kind": "burst", "cd": 30.0, "dur": 6.0, "pct": 25.0},
+	# Grade A: one spell per class. Grade S: the race's racial. They add damage rather than split it.
+	"recklessness": {"name": "Recklessness", "kind": "burst", "cd": 120.0, "dur": 15.0, "crit": 30.0, "grade": "A"},
+	"searing_totem": {"name": "Searing Totem", "kind": "dot", "cd": 12.0, "coef": 0.9, "dur": 12.0, "grade": "A"},
+	"slice_and_dice": {"name": "Slice and Dice", "kind": "burst", "cd": 30.0, "dur": 15.0, "haste": 15.0, "grade": "A"},
+	"volley": {"name": "Volley", "kind": "aoe", "cd": 15.0, "coef": 1.2, "grade": "A"},
+	"blizzard": {"name": "Blizzard", "kind": "aoe", "cd": 15.0, "coef": 1.2, "grade": "A"},
+	"drain_life": {"name": "Drain Life", "kind": "strike", "cd": 12.0, "coef": 0.8, "leech": 100.0, "grade": "A"},
+	"rejuvenation": {"name": "Rejuvenation", "kind": "self_heal", "cd": 45.0, "pct": 25.0, "at": 0.5, "grade": "A"},
+	"blood_fury": {"name": "Blood Fury", "kind": "burst", "cd": 120.0, "dur": 15.0, "pct": 20.0, "grade": "S"},
+	"berserking": {"name": "Berserking", "kind": "burst", "cd": 120.0, "dur": 10.0, "haste": 25.0, "grade": "S"},
+	"war_stomp": {"name": "War Stomp", "kind": "stun_all", "cd": 90.0, "dur": 2.0, "grade": "S"},
+	"will_of_the_forsaken": {"name": "Will of the Forsaken", "kind": "break_cc", "cd": 120.0, "grade": "S"},
 }
+## The spell each class learns at grade A, and each race at grade S.
+const CLASS_SPELLS := {"warrior": "recklessness", "shaman": "searing_totem", "rogue": "slice_and_dice", "hunter": "volley",
+	"mage": "blizzard", "warlock": "drain_life", "druid": "rejuvenation"}
+const RACE_SPELLS := {"orc": "blood_fury", "troll": "berserking", "tauren": "war_stomp", "undead": "will_of_the_forsaken"}
+## Power a grade spell adds when estimating a guildmate's strength.
+const GRADE_VALUE := {"A": 0.05, "S": 0.03}
 
 ## Order in which a guildmate considers their abilities (reactive ones first).
-const PRIORITY := ["defensive", "self_heal", "shield", "feign", "taunt", "burst", "debuff", "debuff_all", "stun",
+const PRIORITY := ["break_cc", "defensive", "self_heal", "shield", "feign", "taunt", "burst", "debuff", "debuff_all", "stun",
 	"stun_all", "dot", "execute", "aoe", "strike"]
 ## Power an ability adds when estimating a guildmate's strength. Strikes and damage over time
 ## mostly move damage away from auto attacks (see damage_share), so they add little by themselves.
 const ABILITY_VALUE := {"strike": 0.02, "dot": 0.02, "aoe": 0.05, "execute": 0.02, "burst": 0.04, "debuff": 0.05,
 	"debuff_all": 0.05, "stun": 0.03, "stun_all": 0.03, "interrupt": 0.04, "taunt": 0.05, "defensive": 0.03,
-	"self_heal": 0.03, "shield": 0.03, "feign": 0.02}
+	"self_heal": 0.03, "shield": 0.03, "feign": 0.02, "break_cc": 0.03}
 ## How much of each kind's base damage counts in a guildmate's usual damage: executes only hit low
 ## targets and area abilities need a pack.
 const SHARE := {"strike": 1.0, "dot": 1.0, "execute": 0.2, "aoe": 0.4}
@@ -633,12 +651,14 @@ static func auto_build(spec_id: String, talents: Dictionary, level: int) -> Dict
 
 
 ## The abilities a guildmate has from their talents, improved by their other talents, in priority order.
-static func abilities_for(spec_id: String, talents: Dictionary, mods: Dictionary) -> Array:
+## `extra` adds abilities by id (a guildmate's grade spells).
+static func abilities_for(spec_id: String, talents: Dictionary, mods: Dictionary, extra := []) -> Array:
 	var out := []
+	var ids := []
 	for t in tree(spec_id):
-		if talents.get(t[0], 0) <= 0 or not t[5].has("ability"):
-			continue
-		var id: String = t[5]["ability"]
+		if talents.get(t[0], 0) > 0 and t[5].has("ability"):
+			ids.append(t[5]["ability"])
+	for id in ids + extra:
 		var a: Dictionary = ABILITIES[id].duplicate(true)
 		a["id"] = id
 		a["cd"] = maxf(1.0, a["cd"] + mods.get(id + ".cd", 0.0))
@@ -666,18 +686,28 @@ static func _priority(a: Dictionary) -> int:
 static func ability_value(abilities: Array) -> float:
 	var v := 0.0
 	for a in abilities:
-		v += ABILITY_VALUE.get(a["kind"], 0.03)
+		v += GRADE_VALUE[a["grade"]] if a.has("grade") else ABILITY_VALUE.get(a["kind"], 0.03)
 	return v
+
+
+## The spells a guildmate's grade has unlocked: their class's at A, their race's at S.
+static func grade_spells(class_id: String, race: String, tier: int) -> Array:
+	var out := []
+	if tier >= Tiers.A and CLASS_SPELLS.has(class_id):
+		out.append(CLASS_SPELLS[class_id])
+	if tier >= Tiers.S and RACE_SPELLS.has(race):
+		out.append(RACE_SPELLS[race])
+	return out
 
 
 ## Damage per second (in seconds of the guildmate's damage) their abilities deal at base values.
 ## Auto attacks are scaled down by 1 / (1 + share) so a fresh ability moves damage rather than adding it;
-## talents that improve the ability are pure gain.
+## talents that improve the ability are pure gain, and so are grade spells.
 static func damage_share(abilities: Array) -> float:
 	var s := 0.0
 	for a in abilities:
 		var base: Dictionary = ABILITIES.get(a["id"], {})
-		if base.has("coef"):
+		if base.has("coef") and not base.has("grade"):
 			s += base["coef"] / base["cd"] * SHARE.get(base["kind"], 0.0)
 	return s
 
@@ -733,6 +763,8 @@ static func ability_text(a: Dictionary) -> String:
 			return "Shields themselves for %d%% of their health.%s Kept up." % [int(a["pct"]), cd]
 		"feign":
 			return "Below %d%% health while attacked: drops every enemy's attention.%s" % [int(a["at"] * 100.0), cd]
+		"break_cc":
+			return "Breaks free of fear and mind control as soon as they land.%s" % cd
 	return ""
 
 

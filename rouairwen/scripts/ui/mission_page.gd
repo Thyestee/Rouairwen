@@ -65,7 +65,7 @@ func _rewards_text(rw: Dictionary) -> String:
 	if rw.has("gold_min"):
 		parts.append("%s – %s" % [Balance.money_bb(rw["gold_min"]), Balance.money_bb(rw["gold_max"])])
 	if rw.has("xp_min"):
-		parts.append("%s – %s XP" % [Balance.big(rw["xp_min"]), Balance.big(rw["xp_max"])])
+		parts.append("%s – %s XP" % [Balance.big(rw["xp_min"] * Settings.xp_rate()), Balance.big(rw["xp_max"] * Settings.xp_rate())])
 	if rw.has("items"):
 		var odds := "[color=#0070dd]%d%% rare[/color]" % int(round(rw["rare_chance"] * 100.0))
 		if rw.get("epic_chance", 0.0) > 0.0:

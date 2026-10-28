@@ -3,9 +3,8 @@ extends Control
 ## The fight: enemies on top, party frames in the middle, your spells at the bottom.
 ##
 ## Hover a frame and press a spell key to cast on it, or click a frame to target it and
-## click a spell. Space pauses, Escape cancels the current cast.
-
-const KEYCODES := Spells.PHYSICAL
+## click a spell. Keys follow Settings' bindings (Space pauses by default); Escape cancels the
+## current cast.
 
 var main
 var eng: CombatEngine
@@ -21,6 +20,7 @@ var buttons: Array = []
 var header_title: Label
 var header_fight: Label
 var header_time: Label
+var pause_button: Button
 var enemy_row: HBoxContainer
 var party_grid: GridContainer
 var cast_bar: ProgressBar
@@ -56,7 +56,8 @@ func _ready() -> void:
 	head.add_child(header_fight)
 	header_time = Style.label("0:00", 16, Style.C["muted"])
 	head.add_child(header_time)
-	head.add_child(Style.button("Pause (Space)", toggle_pause))
+	pause_button = Style.button(_pause_text(), toggle_pause)
+	head.add_child(pause_button)
 	root.add_child(head)
 	# Enemies
 	enemy_row = Style.hbox(10)
@@ -207,13 +208,13 @@ func start_fight() -> void:
 	buttons.clear()
 	for i in eng.known.size():
 		var id: String = eng.known[i]
-		var b := ActionButton.new().setup(id, Spells.key_label(i), eng, Game.level())
+		var b := ActionButton.new().setup(id, Settings.slot_action(i), eng, Game.level())
 		b.pressed.connect(_cast.bind(id, true))
 		bar_row.add_child(b)
 		buttons.append(b)
 	var pot := ActionButton.new()
 	pot.is_potion = true
-	pot.setup("", "F", eng, Game.level())
+	pot.setup("", "potion", eng, Game.level())
 	pot.pressed.connect(_potion)
 	bar_row.add_child(pot)
 	_log("[color=#ffd86b]— Fight %d: %s —[/color]" % [Game.run["fight"] + 1, f["label"]])
@@ -299,8 +300,16 @@ func _enemy_count_changed() -> bool:
 	return false
 
 
+func _pause_text() -> String:
+	var k := Settings.key_label("pause")
+	return "Pause (%s)" % k if k != "" else "Pause"
+
+
 func _update_hud() -> void:
 	header_time.text = "%d:%02d" % [int(eng.time) / 60, int(eng.time) % 60]
+	# Bindings can change from the pause menu's options.
+	if pause_button.text != _pause_text():
+		pause_button.text = _pause_text()
 	mana_bar.value = eng.mana / eng.max_mana
 	mana_label.text = "Mana %d / %d" % [int(eng.mana), int(eng.max_mana)]
 	if eng.casting.is_empty():
@@ -325,26 +334,32 @@ func _unhandled_input(ev: InputEvent) -> void:
 		return
 	if main.overlay != null:
 		return
-	var kc: int = ev.physical_keycode if ev.physical_keycode != 0 else ev.keycode
-	if kc == KEY_SPACE:
-		toggle_pause()
-		get_viewport().set_input_as_handled()
-		return
-	if kc == KEY_ESCAPE:
+	if ev.keycode == KEY_ESCAPE or ev.physical_keycode == KEY_ESCAPE:
 		if not eng.casting.is_empty():
 			eng.cancel_cast()
 		else:
 			_pause_menu()
 		get_viewport().set_input_as_handled()
 		return
-	if kc == KEY_F:
-		_potion()
+	if key_action(Settings.action_for(Settings.event_code(ev))):
 		get_viewport().set_input_as_handled()
-		return
-	var idx := KEYCODES.find(kc)
-	if idx >= 0 and idx < eng.known.size():
-		_cast(eng.known[idx], false)
-		get_viewport().set_input_as_handled()
+
+
+## Runs a bound action ("pause", "potion", "slot3"...). Returns whether there was one.
+func key_action(action: String) -> bool:
+	match action:
+		"":
+			return false
+		"pause":
+			toggle_pause()
+		"potion":
+			_potion()
+		_:
+			var idx := int(action.substr(4)) - 1
+			if idx < 0 or idx >= eng.known.size():
+				return false
+			_cast(eng.known[idx], false)
+	return true
 
 
 func _cast(id: String, from_click: bool) -> void:
@@ -516,12 +531,16 @@ func _victory_panel(res: Dictionary) -> void:
 	if res["xp"] > 0:
 		gains += "%s XP, " % Balance.big(res["xp"])
 	gains += Balance.money_bb(res["gold"])
+	if res.get("prestige", 0) > 0:
+		gains += ", [color=#%s]%d prestige[/color]" % [Style.C["prestige"].to_html(false), res["prestige"]]
 	v.add_child(Style.rich(gains, 15))
 	if res["levels"] > 0:
 		v.add_child(Style.label("You reached level %d!" % Game.level(), 20, Style.C["gold"], true))
 	if not res["items"].is_empty():
 		v.add_child(Style.label("Loot (sent to the guild bank):", 14, Style.C["gold"]))
 		_loot_list(v, res["items"])
+	if finished and act["type"] == "raid":
+		_run_summary(v)
 	var foot := Style.hbox(10)
 	foot.alignment = BoxContainer.ALIGNMENT_END
 	if not finished:
@@ -571,6 +590,9 @@ func _run_summary(v: VBoxContainer) -> void:
 	v.add_child(HSeparator.new())
 	v.add_child(Style.rich("[color=#c09f86]This outing:[/color] %s XP, %s, %d item%s%s" % [Balance.big(r["xp"]), Balance.money_bb(r["gold"]),
 		r["loot"].size(), "" if r["loot"].size() == 1 else "s", (", %d wipe%s" % [r["wipes"], "" if r["wipes"] == 1 else "s"]) if r["wipes"] > 0 else ""], 14))
+	if r.get("prestige", 0) > 0:
+		v.add_child(Style.rich("[color=#c09f86]Prestige:[/color] [color=#%s]+%d[/color] this run, %d in all (rank #%d)" % [Style.C["prestige"].to_html(false),
+			r["prestige"], Game.prestige_total(), Prestige.rank(Game.prestige_total())], 14))
 
 
 func _finish_success() -> void:

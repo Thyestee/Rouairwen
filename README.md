@@ -12,7 +12,11 @@ godot --path rouairwen
 
 **Orgrimmar** is the hub: quest board, dungeons, raids, recruitment, supplies (the Drag), guild hall upgrades, the guild roster and bank, and your talents.
 
-**Combat**: your guildmates fight on their own; you keep them alive. Hover a party frame and press a spell key to cast on it, or click a frame to target it and click a spell. Keys follow the number row, then the Q/E/R/T positions (A/Z/E/R on AZERTY). `F` drinks a mana potion, `Space` pauses, `Esc` cancels a cast. Click an enemy to focus the party's attacks on it.
+**Combat**: your guildmates fight on their own; you keep them alive. Hover a party frame and press a spell key to cast on it, or click a frame to target it and click a spell. By default the keys follow the number row, then the Q/E/R/T positions (A/Z/E/R on AZERTY); `F` drinks a mana potion, `Space` pauses, `Esc` cancels a cast. Click an enemy to focus the party's attacks on it.
+
+**Action bar and keys**: in the **Spellbook** (Talents & Spells), drag a spell or use its arrows to move it to another action bar slot. **Key bindings** (in the Spellbook and in Options) rebinds every slot, the mana potion and pause, Shift/Ctrl/Alt combinations included; keys are saved by physical position, so they stay put on any keyboard layout.
+
+**Healing power** works like in WoW: Healing and Spell Damage from gear add up to Thyeste's healing power, and every heal adds a share of it, its coefficient. A direct heal gets its cast time / 3.5 sec (Lesser Heal 71%, Flash Heal 43%), Renew 100% split between its 5 ticks, Penance its channel time / 3.5 split between its bolts, Prayer of Healing and Circle of Healing half the usual share on each target, Power Word: Shield 30%; Smite adds 57% of Spell Damage. Empowered Healing raises Heal's coefficient. Spell tooltips and the Spellbook show what each spell heals with your gear. Healing and Spell Damage on items grow 6% a level like the spells do, so a coefficient is worth as much at every level.
 
 ## Activities
 
@@ -26,13 +30,15 @@ The quest board offers 6 quests, one of which is always an easy quest whose reco
 
 Every quest, dungeon run and raid run guarantees one gear piece for a random role (healer, caster, melee or tank), shown before you set out and handed out on completion.
 
-Guildmates have grades from F to SSS+; a bigger guild hall attracts better grades. The guild holds 10 members, you included. You are the guild's only healer: recruits are tanks and damage dealers, in every Horde damage and tank spec (Feral Cat and Bear, Subtlety, Survival, Demonology included). Each recruit arrives with 2 spec traits and up to 2 random affixes, good or bad.
+Guildmates have grades from F to SSS+; a bigger guild hall attracts better grades, up to A. The guild holds 10 members, you included.
+
+**Training** (Recruitment → Training) raises a guildmate one grade at a time: gold up to A, gold and **prestige** past it. Each grade adds damage; B also grants a random perk (critical strike or damage), A a class spell (Recklessness, Slice and Dice, Blizzard...) and S a racial (Blood Fury, Berserking, War Stomp, Will of the Forsaken). Prestige comes only from killing raid bosses, more in the harder raids, and the **Prestige** page ranks <Lumens> against the Horde's other raiding guilds by all the prestige it has ever earned: reaching #1 takes about 50 hours of raiding at level 60. You are the guild's only healer: recruits are tanks and damage dealers, in every Horde damage and tank spec (Feral Cat and Bear, Subtlety, Survival, Demonology included). Each recruit arrives with 2 spec traits and up to 2 random affixes, good or bad.
 
 Guildmates have their own Classic-style talent tree for their spec (one point per level from 10, up to 36). It fills itself with a recommended build unless you edit it on the **Character Sheet**, which also shows everyone's stats (hover a stat's name for what it means), effects and gear.
 
 **Guild Missions** (the War Table) send guildmates away for 5–20 minutes of real time, even with the game closed, for gold, experience or gear. Each mission's threats are countered by abilities (interrupts, a tank, area damage, a warrior...); a team that counters nothing needs to be 50% stronger than required to be sure of success.
 
-**Options**: windowed, maximized or fullscreen (F11), and the interface size. The interface stretches to fit any resolution and aspect ratio.
+**Options**: windowed, maximized or fullscreen (F11), and the interface size. The interface stretches to fit any resolution and aspect ratio. For testing, **Experience x10** multiplies every experience gain (quests, dungeons, raids, missions).
 
 ## WoW icons
 

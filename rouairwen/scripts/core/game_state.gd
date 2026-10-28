@@ -105,8 +105,19 @@ func _migrate() -> void:
 			tr[1] = _current_effects(tr, SpecTalents.TRAITS[role])
 		for af in m["affixes"]:
 			af[1] = _current_effects(af, SpecTalents.AFFIXES_GOOD + SpecTalents.AFFIXES_BAD)
+		# Guildmates already at B or better get their grade perk (grades past A from before the cap stay).
+		_grade_perk(m)
+	# Prestige arrived after raids: past clears count, so veteran guilds start on the ladder.
+	if not data.has("prestige"):
+		data["prestige"] = {"points": 0, "total": 0}
+		var earned := 0
+		for rid in data["raid_clears"]:
+			earned += Prestige.for_clear(Raids.by_id(rid)) * data["raid_clears"][rid]
+		if earned > 0:
+			add_prestige(earned)
+			add_log("<Lumens>' past raid clears earn %d prestige." % earned)
 	for c in data["recruits"]:
-		if not ClassData.SPECS.has(c["spec"]) or not c.has("traits"):
+		if not ClassData.SPECS.has(c["spec"]) or not c.has("traits") or c["tier"] > Tiers.RECRUIT_MAX:
 			refresh_recruits(false)
 			break
 	# Quests from before random rewards and role guarantees; then top the board up (6 quests, one easy).
@@ -148,6 +159,7 @@ func new_game() -> void:
 		"dungeon_clears": {},
 		"world_buff": {},
 		"stats": {"playtime": 0, "fights": 0, "wipes": 0, "quests": 0, "dungeons": 0, "raids": 0, "best_tier": 2, "recruited": 0},
+		"prestige": {"points": 0, "total": 0},
 		"log": [],
 	}
 	var p: Dictionary = data["priest"]
@@ -178,6 +190,7 @@ func _new_member(mname: String, race: String, spec_id: String, tier: int, with_a
 		"tier": tier, "gear": {}, "founder": false, "talents": {}, "auto_talents": true, "talent_version": TALENT_VERSION,
 		"traits": roll_traits(spec_id), "affixes": roll_affixes() if with_affixes else []}
 	m["talents"] = SpecTalents.auto_build(spec_id, {}, level() if not data.is_empty() else 1)
+	_grade_perk(m)
 	return m
 
 
@@ -286,7 +299,7 @@ func core_power(m: Dictionary) -> float:
 	return Tiers.power(m["tier"]) * member_stats(m)["offense"]
 
 
-## All effects on a guildmate: talents, traits and affixes.
+## All effects on a guildmate: talents, traits, affixes and the grade B perk.
 func member_mods(m: Dictionary) -> Dictionary:
 	var mods := {}
 	if is_priest(m):
@@ -296,7 +309,7 @@ func member_mods(m: Dictionary) -> Dictionary:
 		var t := SpecTalents.find(m["spec"], id)
 		if not t.is_empty():
 			SpecTalents.add_effects(mods, t[5], tal[id])
-	for tr in m.get("traits", []) + m.get("affixes", []):
+	for tr in m.get("traits", []) + m.get("affixes", []) + ([m["grade_perk"]] if m.has("grade_perk") else []):
 		SpecTalents.add_effects(mods, tr[1])
 	return mods
 
@@ -357,6 +370,65 @@ func spend(c: int) -> bool:
 		return false
 	data["gold"] -= c
 	return true
+
+
+# ---------------------------------------------------------------- prestige & training
+
+## Prestige to spend on training.
+func prestige() -> int:
+	return data["prestige"]["points"]
+
+
+## Every point of prestige ever earned: the guild's score on the ladder.
+func prestige_total() -> int:
+	return data["prestige"]["total"]
+
+
+func add_prestige(n: int) -> void:
+	data["prestige"]["points"] += n
+	data["prestige"]["total"] += n
+
+
+## Why a guildmate can't train to the next grade right now, or "".
+func train_block(m: Dictionary) -> String:
+	if Tiers.is_max(m["tier"]):
+		return "Already %s, the highest grade." % Tiers.name_of(m["tier"])
+	if gold() < Tiers.train_gold(level(), m["tier"]):
+		return "Not enough gold."
+	if prestige() < Tiers.train_prestige(m["tier"]):
+		return "Not enough prestige: raid bosses grant it."
+	return ""
+
+
+## Trains a guildmate one grade up, for gold (and prestige past A).
+func train(m: Dictionary) -> void:
+	var why := train_block(m)
+	if why != "":
+		toast.emit(why)
+		return
+	data["gold"] -= Tiers.train_gold(level(), m["tier"])
+	data["prestige"]["points"] -= Tiers.train_prestige(m["tier"])
+	m["tier"] += 1
+	_grade_perk(m)
+	data["stats"]["best_tier"] = maxi(data["stats"]["best_tier"], m["tier"])
+	var unlocked := ""
+	match Tiers.unlock_at(m["tier"]):
+		"perk":
+			unlocked = ": %s" % m["grade_perk"][0]
+		"class":
+			unlocked = " and learns %s" % SpecTalents.ABILITIES[SpecTalents.CLASS_SPELLS[m["class"]]]["name"]
+		"race":
+			unlocked = " and learns %s" % SpecTalents.ABILITIES[SpecTalents.RACE_SPELLS[m["race"]]]["name"]
+	add_log("%s trains to grade %s%s." % [m["name"], Tiers.name_of(m["tier"]), unlocked])
+	toast.emit("%s reaches grade %s%s!" % [m["name"], Tiers.name_of(m["tier"]), unlocked])
+	save()
+	changed.emit()
+
+
+## Guildmates of grade B or better get their B perk (crit or damage, at random) once.
+func _grade_perk(m: Dictionary) -> void:
+	if m["tier"] >= Tiers.B and not m.has("grade_perk"):
+		m["grade_perk"] = Tiers.B_PERKS[rng.randi() % Tiers.B_PERKS.size()].duplicate(true)
 
 
 # ---------------------------------------------------------------- quests
@@ -816,6 +888,41 @@ func respec() -> void:
 	changed.emit()
 
 
+# ---------------------------------------------------------------- action bar
+
+## Thyeste's spells in action bar order: the order set in the spellbook, then spells learned since
+## at the end (all in the default order until the bar is rearranged). Slot i is cast with the key
+## bound to Settings.slot_action(i).
+func action_bar() -> Array:
+	var known := Spells.known(level(), data["priest"]["talents"])
+	var out := []
+	for id in data["priest"].get("bar", []):
+		if id in known:
+			out.append(id)
+	for id in known:
+		if not (id in out):
+			out.append(id)
+	return out
+
+
+## Moves a spell to another action bar slot; the spells in between shift over.
+func move_spell(id: String, to: int) -> void:
+	var bar := action_bar()
+	if not (id in bar):
+		return
+	bar.erase(id)
+	bar.insert(clampi(to, 0, bar.size()), id)
+	data["priest"]["bar"] = bar
+	save()
+	changed.emit()
+
+
+func reset_action_bar() -> void:
+	data["priest"].erase("bar")
+	save()
+	changed.emit()
+
+
 # ---------------------------------------------------------------- unlocks
 
 func dungeon_unlocked(d: Dictionary) -> bool:
@@ -851,28 +958,29 @@ func member_combat_spec(m: Dictionary, buffs: Dictionary) -> Dictionary:
 
 
 ## Thyeste's combat numbers: Stamina for health, Intellect for mana and crit, Spirit for regeneration,
-## Healing (and Spell Damage) for heals, Spell Damage for Smite.
+## healing power (Healing and Spell Damage) for heals, Spell Damage for Smite.
 func priest_combat_spec(buffs: Dictionary) -> Dictionary:
 	var p: Dictionary = data["priest"]
 	var st := member_stats(p)
 	var u := Balance.scale(level())
 	var wis := _buff_value(buffs, "priest_elixir")
 	return {
-		"name": p["name"], "talents": p["talents"], "known": Spells.known(level(), p["talents"]),
+		"name": p["name"], "talents": p["talents"], "known": action_bar(),
 		"max_hp": 100.0 * u * st["health_mult"] * (1.0 + _buff_value(buffs, "guardian_elixir")),
 		"max_mana": 300.0 * u * st["mana_mult"] * (1.0 + wis),
 		"regen": 6.0 * u * st["regen_mult"] * (1.0 + _buff_value(buffs, "food")),
-		"heal_mult": st["heal_mult"] * (1.0 + wis * 0.5) * (1.0 + _buff_value(buffs, "world") * 0.5),
-		"smite_mult": st["offense"], "crit": st["spell_crit"] / 100.0, "dodge": st["dodge"],
+		"heal_power": st["heal_power"], "spell_power": st["spell_power"],
+		"heal_mult": (1.0 + wis * 0.5) * (1.0 + _buff_value(buffs, "world") * 0.5),
+		"crit": st["spell_crit"] / 100.0, "dodge": st["dodge"],
 		"mit": Stats.armor_factor("priest", level(), st["armor"]),
 	}
 
 
-## A guildmate's abilities from their talents, with every improving talent applied.
+## A guildmate's abilities from their talents (with every improving talent applied) and their grade.
 func member_abilities(m: Dictionary) -> Array:
 	if is_priest(m):
 		return []
-	return SpecTalents.abilities_for(m["spec"], m.get("talents", {}), member_mods(m))
+	return SpecTalents.abilities_for(m["spec"], m.get("talents", {}), member_mods(m), SpecTalents.grade_spells(m["class"], m["race"], m["tier"]))
 
 
 ## Party strength shown before an activity, comparable to 100 x content difficulty.
@@ -1003,6 +1111,10 @@ func fight_won(eng: CombatEngine) -> Dictionary:
 	var res := _grant(xp, g, items)
 	if fight["type"] == "raid_boss":
 		var rid: String = act["id"]
+		var pts := Prestige.for_boss(Raids.by_id(rid), fight.get("final", false))
+		add_prestige(pts)
+		res["prestige"] = pts
+		run["prestige"] = run.get("prestige", 0) + pts
 		var killed: Array = data["raid_progress"].get(rid, [])
 		killed.append(fight["boss_index"])
 		data["raid_progress"][rid] = killed
@@ -1018,6 +1130,7 @@ func fight_won(eng: CombatEngine) -> Dictionary:
 
 
 func _grant(xp: int, g: int, items: Array) -> Dictionary:
+	xp *= Settings.xp_rate()
 	var levels := 0
 	var p: Dictionary = data["priest"]
 	if p["level"] < Balance.MAX_LEVEL:

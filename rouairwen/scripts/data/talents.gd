@@ -55,7 +55,7 @@ const TREES := {
 		{"id": "healing_prayers", "name": "Healing Prayers", "tier": 3, "col": 2, "ranks": 2, "icon": "prayers",
 			"desc": "Reduces the mana cost of Prayer of Healing and Prayer of Mending by %d%%.", "per": [10, 20]},
 		{"id": "empowered_healing", "name": "Empowered Healing", "tier": 4, "col": 0, "ranks": 5, "icon": "empowered",
-			"desc": "Heal heals for %d%% more, and Flash Heal for half that.", "per": [4, 8, 12, 16, 20]},
+			"desc": "Heal gains an additional %d%% of your healing power, and Flash Heal half that.", "per": [8, 16, 24, 32, 40]},
 		{"id": "serendipity", "name": "Serendipity", "tier": 4, "col": 2, "ranks": 3, "icon": "serendipity",
 			"desc": "Each Flash Heal reduces the cast time of your next Heal or Prayer of Healing by %d%%, stacking 3 times.", "per": [4, 8, 12]},
 		{"id": "lightwell", "name": "Lightwell", "tier": 5, "col": 0, "ranks": 1, "icon": "lightwell", "spell": true,
