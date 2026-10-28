@@ -72,7 +72,7 @@ func _scenario(kind: String, level: int, tier: int, gear: float, diff: float) ->
 		var ps := Stats.compute_stats("priest", "priest", level, _gear("priest", "healing", level, gear))
 		var priest := {"name": "Bot", "talents": tal, "known": Spells.known(level, tal),
 			"max_hp": 100.0 * u * ps["health_mult"], "max_mana": 300.0 * u * ps["mana_mult"],
-			"regen": 6.0 * u * ps["regen_mult"], "heal_power": ps["heal_power"], "spell_power": ps["spell_power"],
+			"regen": 6.0 * u * ps["regen_mult"], "heal_power": ps["heal_power"],
 			"crit": ps["spell_crit"] / 100.0, "dodge": ps["dodge"], "mit": Stats.armor_factor("priest", level, ps["armor"])}
 		var size := 3 if kind == "quest" else (5 if kind == "dungeon" else 10)
 		var ftype := "pack"

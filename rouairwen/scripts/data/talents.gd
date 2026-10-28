@@ -7,7 +7,7 @@ const POINTS_PER_TIER := 5
 const TREES := {
 	"discipline": {"name": "Discipline", "color": Color("d8c87a"), "talents": [
 		{"id": "twin_disciplines", "name": "Twin Disciplines", "tier": 0, "col": 0, "ranks": 5, "icon": "twin",
-			"desc": "Increases your healing and Smite damage by %d%%.", "per": [1, 2, 3, 4, 5]},
+			"desc": "Increases the healing and absorption of your instant spells by %d%%.", "per": [2, 4, 6, 8, 10]},
 		{"id": "improved_shield", "name": "Improved Power Word: Shield", "tier": 0, "col": 2, "ranks": 3, "icon": "shield",
 			"desc": "Increases the damage absorbed by Power Word: Shield by %d%%.", "per": [5, 10, 15]},
 		{"id": "mental_agility", "name": "Mental Agility", "tier": 1, "col": 0, "ranks": 3, "icon": "agility",
@@ -43,7 +43,7 @@ const TREES := {
 		{"id": "holy_specialization", "name": "Holy Specialization", "tier": 1, "col": 0, "ranks": 5, "icon": "holy_spec",
 			"desc": "Increases the critical chance of your holy spells by %d%%.", "per": [1, 2, 3, 4, 5]},
 		{"id": "divine_fury", "name": "Divine Fury", "tier": 1, "col": 2, "ranks": 5, "icon": "fury",
-			"desc": "Reduces the casting time of Heal and Smite by %s sec.", "per": [0.1, 0.2, 0.3, 0.4, 0.5]},
+			"desc": "Reduces the casting time of Heal and Prayer of Healing by %s sec.", "per": [0.1, 0.2, 0.3, 0.4, 0.5]},
 		{"id": "prayer_of_mending", "name": "Prayer of Mending", "tier": 2, "col": 1, "ranks": 1, "icon": "pom", "spell": true,
 			"desc": "Places a prayer on an ally that heals them the next time they take damage, then jumps to another ally. 5 jumps, 10s cooldown."},
 		{"id": "inspiration", "name": "Inspiration", "tier": 2, "col": 2, "ranks": 3, "icon": "inspiration",
@@ -59,7 +59,7 @@ const TREES := {
 		{"id": "serendipity", "name": "Serendipity", "tier": 4, "col": 2, "ranks": 3, "icon": "serendipity",
 			"desc": "Each Flash Heal reduces the cast time of your next Heal or Prayer of Healing by %d%%, stacking 3 times.", "per": [4, 8, 12]},
 		{"id": "lightwell", "name": "Lightwell", "tier": 5, "col": 0, "ranks": 1, "icon": "lightwell", "spell": true,
-			"desc": "Creates a Lightwell: allies below 50% health draw from it to heal over 6s. 8 charges, 2 min cooldown."},
+			"desc": "Creates a Lightwell for 20s: every 0.5s it heals the ally with the lowest health, waiting while everyone is at full health. 20 charges, 2 min cooldown."},
 		{"id": "spirit_of_redemption", "name": "Spirit of Redemption", "tier": 5, "col": 2, "ranks": 1, "icon": "spirit",
 			"desc": "When you die, you become a Spirit of Redemption for 10s: your spells are free, and you can't be harmed."},
 		{"id": "circle_of_healing", "name": "Circle of Healing", "tier": 6, "col": 1, "ranks": 1, "icon": "coh", "spell": true,

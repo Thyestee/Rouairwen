@@ -39,7 +39,7 @@ static func item_scale(ilvl: int) -> float:
 	return scale(MAX_LEVEL) * (1.0 + 0.03 * (ilvl - MAX_LEVEL))
 
 
-## Early levels hit softer so level 1 is playable with only Lesser Heal and Smite.
+## Early levels hit softer so level 1 is playable with only Lesser Heal.
 static func ramp(level: float) -> float:
 	return clampf(0.62 + 0.038 * level, 0.0, 1.0)
 

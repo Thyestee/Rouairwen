@@ -262,62 +262,72 @@ func _markdown(title: String, md: String) -> String:
 
 # ---------------------------------------------------------------- window
 
+const MARGIN := 22
+const LEFT_W := 260
+
+
 func _build_ui() -> void:
-	var bg := ColorRect.new()
-	bg.color = Color(0.09, 0.035, 0.025)
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(bg)
+	# Orgrimmar's gate fills the window, its doors behind the left column
+	var gate: Control = preload("res://gate.gd").new()
+	gate.gate_x = MARGIN + LEFT_W / 2.0
+	gate.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(gate)
 	var margin := MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	for side in ["left", "right", "top", "bottom"]:
-		margin.add_theme_constant_override("margin_" + side, 22)
+		margin.add_theme_constant_override("margin_" + side, MARGIN)
 	add_child(margin)
 	var root := HBoxContainer.new()
 	root.add_theme_constant_override("separation", 22)
 	margin.add_child(root)
 
-	# Left: crest, title, status, buttons
+	# Left: the guild's banner in front of the gate, then status and buttons
 	var left := VBoxContainer.new()
-	left.custom_minimum_size.x = 260
-	left.add_theme_constant_override("separation", 10)
+	left.custom_minimum_size.x = LEFT_W
+	left.add_theme_constant_override("separation", 8)
 	root.add_child(left)
-	var emblem: Control = preload("res://emblem.gd").new()
-	emblem.custom_minimum_size = Vector2(110, 124)
-	emblem.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	left.add_child(emblem)
-	var title := _label("<Lumens>", 34, GOLD, true)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	left.add_child(title)
+	var banner_script := preload("res://banner.gd")
+	var banner: Control = banner_script.new()
+	banner.custom_minimum_size = Vector2(176, banner_script.height_for(176))
+	banner.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	left.add_child(banner)
+	var spacer := Control.new()
+	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	left.add_child(spacer)
+	# Status and buttons on a dark plate, readable over the doors
+	var plate := PanelContainer.new()
+	plate.add_theme_stylebox_override("panel", _box(Color(0.05, 0.02, 0.015, 0.82), Color("8e2a1a"), 1, 6, 10))
+	left.add_child(plate)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 8)
+	plate.add_child(box)
 	status = _label("", 16, TEXT)
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	left.add_child(status)
+	box.add_child(status)
 	bar = ProgressBar.new()
 	bar.custom_minimum_size.y = 16
 	bar.show_percentage = false
 	bar.add_theme_stylebox_override("background", _box(Color(0.05, 0.02, 0.015), Color("6a2414"), 1, 4))
 	bar.add_theme_stylebox_override("fill", _box(Color("a3241a"), Color.TRANSPARENT, 0, 4))
-	left.add_child(bar)
+	box.add_child(bar)
 	detail = _label("", 13, MUTED)
 	detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	left.add_child(detail)
-	var spacer := Control.new()
-	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	left.add_child(spacer)
+	box.add_child(detail)
 	play = _button("Play", true)
-	play.custom_minimum_size.y = 52
+	play.custom_minimum_size.y = 50
 	play.add_theme_font_size_override("font_size", 24)
 	play.pressed.connect(_play)
-	left.add_child(play)
+	box.add_child(play)
 	retry = _button("Check again", false)
 	retry.pressed.connect(_check)
-	left.add_child(retry)
+	box.add_child(retry)
 
-	# Right: what's new in the latest release
+	# Right: what's new in the latest release, the wall showing through
 	var panel := PanelContainer.new()
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	panel.add_theme_stylebox_override("panel", _box(Color(0.06, 0.025, 0.02, 0.95), Color("8e2a1a"), 2, 6, 14))
+	panel.add_theme_stylebox_override("panel", _box(Color(0.06, 0.025, 0.02, 0.82), Color("8e2a1a"), 2, 6, 14))
 	root.add_child(panel)
 	notes = RichTextLabel.new()
 	notes.bbcode_enabled = true

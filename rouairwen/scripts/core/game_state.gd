@@ -958,7 +958,7 @@ func member_combat_spec(m: Dictionary, buffs: Dictionary) -> Dictionary:
 
 
 ## Thyeste's combat numbers: Stamina for health, Intellect for mana and crit, Spirit for regeneration,
-## healing power (Healing and Spell Damage) for heals, Spell Damage for Smite.
+## healing power (Healing and Spell Damage) for heals.
 func priest_combat_spec(buffs: Dictionary) -> Dictionary:
 	var p: Dictionary = data["priest"]
 	var st := member_stats(p)
@@ -969,7 +969,7 @@ func priest_combat_spec(buffs: Dictionary) -> Dictionary:
 		"max_hp": 100.0 * u * st["health_mult"] * (1.0 + _buff_value(buffs, "guardian_elixir")),
 		"max_mana": 300.0 * u * st["mana_mult"] * (1.0 + wis),
 		"regen": 6.0 * u * st["regen_mult"] * (1.0 + _buff_value(buffs, "food")),
-		"heal_power": st["heal_power"], "spell_power": st["spell_power"],
+		"heal_power": st["heal_power"],
 		"heal_mult": (1.0 + wis * 0.5) * (1.0 + _buff_value(buffs, "world") * 0.5),
 		"crit": st["spell_crit"] / 100.0, "dodge": st["dodge"],
 		"mit": Stats.armor_factor("priest", level(), st["armor"]),

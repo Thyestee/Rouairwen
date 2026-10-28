@@ -179,7 +179,7 @@ func _spell_row(id: String, i: int, count: int, ps: Dictionary) -> Control:
 	var cast_txt := "Instant" if s["cast"] == 0.0 else ("Channeled %.1fs" % s["cast"] if s.get("channel", 0) else "%.1fs cast" % s["cast"])
 	var key := Settings.key_label(Settings.slot_action(i)) if i < Settings.SLOTS else ""
 	var lines := ["[b]%s[/b]  [color=#8a7262][%s][/color]" % [Spells.display_name(id, lvl), key if key != "" else "no key"]]
-	var amount := CombatEngine.spell_text(id, lvl, ps["heal_power"], ps["spell_power"], 1.0, Game.priest()["talents"])
+	var amount := CombatEngine.spell_text(id, lvl, ps["heal_power"], 1.0, Game.priest()["talents"])
 	if amount != "":
 		lines.append("[font_size=12]%s[/font_size]" % amount)
 	lines.append("[font_size=12][color=#c09f86]%s · %d mana. %s[/color][/font_size]" % [cast_txt, int(s["mana"] * Balance.scale(lvl)), s["desc"]])

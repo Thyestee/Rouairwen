@@ -211,6 +211,7 @@ func run() -> void:
 	var prestige_before := Game.prestige_total()
 	Game.start_run(Activities.make_raid(r, [], Game.rng), _ids(9))
 	main.start_combat()
+	_check_lightwell(Game.build_engine())
 	await _play_run("07_raid")
 	_check(Game.data["raid_clears"].get("ony", 0) + int(Game.data["raid_progress"].has("ony")) >= 0, "raid flow finished")
 	_check(Game.prestige_total() > prestige_before, "raid bosses grant prestige (%d, rank #%d)" % [Game.prestige_total() - prestige_before,
@@ -293,6 +294,7 @@ func _play_run(tag: String) -> void:
 			if steps == 120 and not shot_taken:
 				cs._rebuild_enemies()
 				cs._update_hud()
+				cs.meter.queue_redraw()
 				await _frames(2)
 				await _shot(tag + "_combat")
 				shot_taken = true
@@ -322,6 +324,7 @@ func _play_run(tag: String) -> void:
 		if not Game.run_finished():
 			cs.start_fight()
 			continue
+		_check_meter(cs, tag)
 		await _shot(tag + "_victory")
 		if Game.run["activity"]["type"] == "quest":
 			var gold_before := Game.gold()
@@ -342,16 +345,76 @@ func _play_run(tag: String) -> void:
 	main.show_hub()
 
 
+## The damage meter: totals for the fight and the whole outing, breakdowns that add up.
+func _check_meter(cs: CombatScreen, tag: String) -> void:
+	var keep: bool = DamageMeter.overall
+	DamageMeter.overall = false
+	var cur: Dictionary = cs.meter.segment()[0]
+	DamageMeter.overall = true
+	var all: Dictionary = cs.meter.segment()[0]
+	DamageMeter.overall = keep
+	var p: String = Game.priest()["name"]
+	var dealt := 0.0
+	for n in all:
+		dealt += all[n]["damage"]
+	_check(all[p]["healing"] > 0.0 and dealt > 0.0, "the meter counts damage and healing (%s: %s healed, %s dealt)" % [tag,
+		DamageMeter.short(all[p]["healing"]), DamageMeter.short(dealt)])
+	_check(all[p]["healing"] >= cur[p]["healing"] and all[p]["taken"] >= cur[p]["taken"], "Overall adds up every fight of the outing (%s)" % tag)
+	var parts: float = all[p]["healing_by"].values().reduce(func(a, b): return a + b, 0.0)
+	_check(absf(parts - all[p]["healing"]) < 1.0, "the healing breakdown adds up to the total (%s)" % tag)
+
+
+## The Lightwell: waits while everyone is healthy, heals the lowest ally every 0.5 sec, 20 charges, 20 sec.
+func _check_lightwell(e: CombatEngine) -> void:
+	e._resolve("lightwell", null)
+	for i in 4:
+		e._tick_lightwell(0.5)
+	_check(e.lightwell.get("charges", 0) == 20, "the Lightwell waits while everyone is at full health")
+	var a: CombatEngine.Unit = e.party[1]
+	var b: CombatEngine.Unit = e.party[2]
+	a.hp = a.max_hp * 0.5
+	b.hp = b.max_hp * 0.3
+	var a_hp := a.hp
+	var b_hp := b.hp
+	e._tick_lightwell(0.5)
+	_check(b.hp > b_hp and a.hp == a_hp and e.lightwell["charges"] == 19, "the Lightwell heals the ally with the lowest health first")
+	for m in e.party:
+		m.hp = 1.0
+	for i in 30:
+		e._tick_lightwell(0.5)
+	_check(e.lightwell.is_empty() and e.priest.healing_by.get("Lightwell", 0.0) > 0.0, "the Lightwell fades after its 20 charges")
+	for m in e.party:
+		m.hp = m.max_hp
+	e._resolve("lightwell", null)
+	for i in 39:
+		e._tick_lightwell(0.5)
+	var standing := not e.lightwell.is_empty()
+	for i in 2:
+		e._tick_lightwell(0.5)
+	_check(standing and e.lightwell.is_empty(), "the Lightwell fades after 20 sec, its charges unused")
+
+
 ## WoW-style coefficients: each heal adds its share of healing power, Renew 100% split over its ticks.
 func _check_coefficients() -> void:
 	var gain := func(id: String, tal := {}) -> float:
-		return CombatEngine.spell_amount(id, 40, 1000.0, 0.0, 1.0, tal) - CombatEngine.spell_amount(id, 40, 0.0, 0.0, 1.0, tal)
+		return CombatEngine.spell_amount(id, 40, 1000.0, 1.0, tal) - CombatEngine.spell_amount(id, 40, 0.0, 1.0, tal)
 	_check(is_equal_approx(gain.call("renew"), 1000.0), "Renew adds 100% of healing power over its ticks")
 	_check(is_equal_approx(gain.call("heal"), 1000.0 * 2.5 / 3.5) and is_equal_approx(gain.call("flash_heal"), 1000.0 * 1.5 / 3.5),
 		"direct heals add cast time / 3.5 of healing power")
 	_check(is_equal_approx(gain.call("heal", {"empowered_healing": 5}), 1000.0 * (2.5 / 3.5 + 0.4)), "Empowered Healing raises Heal's coefficient")
-	_check(gain.call("smite") == 0.0 and CombatEngine.spell_amount("smite", 40, 0.0, 1000.0, 1.0, {}) > CombatEngine.spell_amount("smite", 40, 0.0, 0.0, 1.0, {}),
-		"Smite gains from Spell Damage only")
+	# Smite is gone; its talents now work on heals
+	_check(not Spells.BOOK.has("smite") and not ("smite" in Spells.known(60, {})), "the priest has no Smite")
+	var twin := {"twin_disciplines": 5}
+	var amt := func(id: String, tal: Dictionary) -> float:
+		return CombatEngine.spell_amount(id, 40, 1000.0, 1.0, tal)
+	_check(is_equal_approx(amt.call("renew", twin), amt.call("renew", {}) * 1.1) and is_equal_approx(amt.call("shield", twin), amt.call("shield", {}) * 1.1)
+		and is_equal_approx(amt.call("heal", twin), amt.call("heal", {})), "Twin Disciplines raises instant spells only, by 10%")
+	var eng := CombatEngine.new()
+	eng.priest = CombatEngine.Unit.new()
+	eng.talents = {"divine_fury": 5}
+	eng._talent_values = {"divine_fury": Talents.value(eng.talents, "divine_fury")}
+	_check(is_equal_approx(eng.cast_time("heal"), 2.0) and is_equal_approx(eng.cast_time("prayer_of_healing"), 2.5),
+		"Divine Fury speeds up Heal and Prayer of Healing")
 	var green := Stats.compute_stats("priest", "priest", 50, Stats.reference_gear_stats("healing", 50))
 	_check(absf(green["heal_mult"] - 1.434) < 0.01, "at-level greens still make Lesser Heal 43%% bigger (%.3f)" % green["heal_mult"])
 
@@ -515,8 +578,6 @@ func _bot(eng: CombatEngine) -> void:
 		if not low.has("renew") and eng.cast("renew", low) == "":
 			return
 		eng.cast("heal", low)
-	elif eng.mana > eng.max_mana * 0.5:
-		eng.cast("smite", null)
 
 
 func _check(ok: bool, what: String) -> void:

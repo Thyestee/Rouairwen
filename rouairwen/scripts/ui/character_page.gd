@@ -10,8 +10,8 @@ const STAT_HELP := {
 	"Mana": "Thyeste's pool for casting spells. Every heal costs mana. Grows with Intellect.",
 	"Mana regeneration": "Mana regained per second, from Spirit. While casting (within 5 sec of spending mana) only a part of it continues; Meditation raises that part.",
 	"Healing power": "Added to every heal, like in WoW: each spell adds a share of it, its coefficient. A direct heal gets its cast time / 3.5 sec (Lesser Heal 71%, Flash Heal 43%), Renew 100% split between its ticks, party-wide heals half of that. From Healing and Spell Damage on gear.",
-	"Healing bonus": "How much more your heals restore from talents (Spiritual Healing, Twin Disciplines), healing power included. Elixirs add more in fights.",
-	"Spell critical strike": "Chance for a heal to restore 50% more (or Smite to hit harder). From Intellect, gear and Holy Specialization.",
+	"Healing bonus": "How much more your heals restore from Spiritual Healing, healing power included, and how much more your instant spells (Renew, Power Word: Shield, Prayer of Mending, Circle of Healing) restore or absorb from Twin Disciplines. Elixirs add more in fights.",
+	"Spell critical strike": "Chance for a heal to restore 50% more. From Intellect, gear and Holy Specialization.",
 	"Grade": "Their grade, F to SSS+. It multiplies their damage, and (square-rooted) their health. B adds a perk, A a class spell, S a racial. Recruits come up to A; training goes further.",
 	"Role": "Tanks hold enemies' attention, melee fight up close, ranged fight from afar.",
 	"Damage per second": "Average damage dealt each second against a single target, crits and attack speed included.",
@@ -189,15 +189,16 @@ func _priest_stats(m: Dictionary) -> Array:
 	var tal: Dictionary = m["talents"]
 	var mana: float = spec["max_mana"] * (1.0 + Talents.value(tal, "mental_strength") / 100.0)
 	var keep := 0.15 + Talents.value(tal, "meditation") / 100.0
-	var heal_bonus: float = Talents.value(tal, "twin_disciplines") + Talents.value(tal, "spiritual_healing")
+	var heal_bonus: float = Talents.value(tal, "spiritual_healing")
+	var instant_bonus: float = Talents.value(tal, "twin_disciplines")
 	return [
 		["Spell"],
 		["Healing power", "%d" % int(spec["heal_power"]), STAT_HELP["Healing power"] + "\n\n%s: %s" % [Spells.display_name("heal", lvl),
-			RegEx.create_from_string("\\[[^\\]]*\\]").sub(CombatEngine.spell_text("heal", lvl, spec["heal_power"], spec["spell_power"], 1.0, tal), "", true)]],
+			RegEx.create_from_string("\\[[^\\]]*\\]").sub(CombatEngine.spell_text("heal", lvl, spec["heal_power"], 1.0, tal), "", true)]],
 		["Healing", "+%d" % int(st["heal"]), "Healing from gear. It adds to your healing power."],
 		["Spell Damage", "+%d" % int(st["sp"]),
-			"Adds to your healing power like Healing does, and to Smite's damage (57% of it)."],
-		["Healing bonus", "+%d%%" % int(round(heal_bonus))],
+			"Spell Damage from gear. It adds to your healing power like Healing does."],
+		["Healing bonus", ("+%d%%, instants +%d%% more" % [int(round(heal_bonus)), int(round(instant_bonus))]) if instant_bonus > 0.0 else "+%d%%" % int(round(heal_bonus))],
 		["Spell critical strike", "%.1f%%" % (spec["crit"] * 100.0 + Talents.value(tal, "holy_specialization"))],
 		["Mana", "%d" % int(mana)],
 		["Mana regeneration", "%.1f / sec (%.1f while casting)" % [spec["regen"], spec["regen"] * keep]],

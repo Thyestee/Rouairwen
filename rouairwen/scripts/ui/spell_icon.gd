@@ -6,7 +6,7 @@ const PALETTE := {
 	"heal": [Color("1d3f7a"), Color("ffe9a8")], "flash": [Color("6a4a10"), Color("fff6c0")], "renew": [Color("1f5a2a"), Color("b8ff9a")],
 	"shield": [Color("1a2f5a"), Color("cfe6ff")], "penance": [Color("5a4410"), Color("ffd86b")], "pom": [Color("4a3a1a"), Color("ffe08a")],
 	"coh": [Color("3a2a5a"), Color("fff0b0")], "poh": [Color("5a3a1a"), Color("ffe6a0")], "dispel": [Color("10305a"), Color("8ac4ff")],
-	"smite": [Color("5a4a2a"), Color("fff2b0")], "infusion": [Color("5a2a10"), Color("ffb060")], "suppression": [Color("2a1a4a"), Color("d0b0ff")],
+	"infusion": [Color("5a2a10"), Color("ffb060")], "suppression": [Color("2a1a4a"), Color("d0b0ff")],
 	"focus": [Color("2a2a4a"), Color("e0e0ff")], "lightwell": [Color("3a3a2a"), Color("fffbe0")],
 	"mana_potion": [Color("101a3a"), Color("4a8aff")], "healing_potion": [Color("3a1010"), Color("ff4a4a")],
 	"elixir_red": [Color("3a1a10"), Color("ff7a3a")], "elixir_green": [Color("103a1a"), Color("5aff7a")], "elixir_blue": [Color("10203a"), Color("7ac0ff")],
@@ -101,7 +101,7 @@ func _draw() -> void:
 			draw_arc(c, m * 0.28, 0, TAU * 0.8, 20, fg, w)
 			draw_line(c + Vector2(-m * 0.14, -m * 0.14), c + Vector2(m * 0.14, m * 0.14), fg, w)
 			draw_line(c + Vector2(m * 0.14, -m * 0.14), c + Vector2(-m * 0.14, m * 0.14), fg, w)
-		"smite", "fury", "holy_spec":
+		"fury", "holy_spec":
 			draw_line(c + Vector2(0, -m * 0.4), c + Vector2(0, m * 0.25), fg, w * 1.4)
 			draw_colored_polygon(PackedVector2Array([c + Vector2(-m * 0.18, m * 0.12), c + Vector2(m * 0.18, m * 0.12), c + Vector2(0, m * 0.38)]), fg)
 		"infusion", "strength":

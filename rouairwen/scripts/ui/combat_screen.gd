@@ -6,8 +6,13 @@ extends Control
 ## click a spell. Keys follow Settings' bindings (Space pauses by default); Escape cancels the
 ## current cast.
 
+const METER_W := 250.0
+const LOG_W := 280.0
+const BUTTON := 54.0
+
 var main
 var eng: CombatEngine
+var meter: DamageMeter
 var running := false
 var paused := false
 var countdown := 0.0
@@ -73,12 +78,12 @@ func _ready() -> void:
 	party_grid.add_theme_constant_override("v_separation", 8)
 	pc.add_child(party_grid)
 	root.add_child(pc)
-	# Bottom: casting + spells (center), log (right)
+	# Bottom: damage meter (left), casting + spells (center), log (right)
 	var bottom := Style.hbox(12)
 	bottom.custom_minimum_size.y = 250
-	var left_pad := Control.new()
-	left_pad.custom_minimum_size.x = 40
-	bottom.add_child(left_pad)
+	meter = DamageMeter.new()
+	meter.custom_minimum_size.x = METER_W
+	bottom.add_child(meter)
 	var mid := Style.vbox(6)
 	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	mid.alignment = BoxContainer.ALIGNMENT_END
@@ -121,7 +126,7 @@ func _ready() -> void:
 	mid.add_child(barp)
 	bottom.add_child(mid)
 	var logp := Style.panel(Color(0, 0, 0, 0.6), Color(0.3, 0.15, 0.1), 1, 6)
-	logp.custom_minimum_size = Vector2(300, 0)
+	logp.custom_minimum_size = Vector2(LOG_W, 0)
 	var logv := Style.vbox(2)
 	logp.add_child(logv)
 	var logh := Style.hbox(4)
@@ -171,6 +176,7 @@ func _ready() -> void:
 func start_fight() -> void:
 	main.close_overlay()
 	eng = Game.build_engine()
+	meter.set_engine(eng)
 	eng.floating.connect(_on_floating)
 	eng.log_line.connect(_log)
 	eng.combat_log.connect(_add_log)
@@ -217,6 +223,12 @@ func start_fight() -> void:
 	pot.setup("", "potion", eng, Game.level())
 	pot.pressed.connect(_potion)
 	bar_row.add_child(pot)
+	# A full bar shrinks its buttons to fit between the meter and the log.
+	var room := get_viewport_rect().size.x - 24.0 - METER_W - LOG_W - 24.0 - 16.0
+	var n := bar_row.get_child_count()
+	var side := clampf(floorf((room - (n - 1) * 5.0) / n), 40.0, BUTTON)
+	for b in bar_row.get_children():
+		b.custom_minimum_size = Vector2(side, side)
 	_log("[color=#ffd86b]— Fight %d: %s —[/color]" % [Game.run["fight"] + 1, f["label"]])
 	running = false
 	paused = false

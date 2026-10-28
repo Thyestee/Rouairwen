@@ -8,12 +8,12 @@ signal hover_changed(frame, inside: bool)
 
 const BUFF_COLORS := {
 	"renew": Color("6ee06e"), "pws": Color("e8f0ff"), "pom": Color("ffd86b"), "grace": Color("fff0a0"), "inspiration": Color("a0d0ff"),
-	"aegis": Color("ffcf5a"), "power_infusion": Color("ff9a3c"), "pain_suppression": Color("b088ff"), "lightwell_renew": Color("fffbe0"),
+	"aegis": Color("ffcf5a"), "power_infusion": Color("ff9a3c"), "pain_suppression": Color("b088ff"),
 	"shield_wall": Color("b0b0b0"), "evasion": Color("fff569"), "barkskin": Color("a07040"),
 	"weakened_soul": Color("7a5a5a"),
 }
 const BUFF_LETTERS := {"renew": "R", "pws": "S", "pom": "M", "grace": "G", "inspiration": "I", "aegis": "A", "power_infusion": "P",
-	"pain_suppression": "Ps", "lightwell_renew": "L", "shield_wall": "W", "evasion": "E", "barkskin": "B"}
+	"pain_suppression": "Ps", "shield_wall": "W", "evasion": "E", "barkskin": "B"}
 
 const AURA := 18.0
 ## The cast bar strip above the frame itself.

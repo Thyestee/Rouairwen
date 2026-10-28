@@ -52,6 +52,11 @@ class Unit:
 	var used: Dictionary = {}
 	var damage_done := 0.0
 	var healing_done := 0.0
+	var damage_taken := 0.0
+	## For the damage meter: damage dealt, healing done (absorbs included) and damage taken, by ability.
+	var damage_by := {}
+	var healing_by := {}
+	var taken_by := {}
 	var enrage_at := 0.0
 	var enraged := false
 	var berserk := 0.0
@@ -133,9 +138,8 @@ var max_mana := 1.0
 var regen := 1.0
 var fsr_keep := 0.15
 var since_spend := 99.0
-## Healing power (Healing + Spell Damage) and Spell Damage: each spell adds its coefficient of them.
+## Healing power (Healing + Spell Damage): each heal adds its coefficient of it.
 var heal_power := 0.0
-var spell_power := 0.0
 ## Healing multiplier from elixirs and world buffs.
 var heal_mult := 1.0
 var crit := 0.05
@@ -158,7 +162,7 @@ var healing_potion_amount := 0.0
 var potions_used := {"mana": 0, "healing": 0}
 var soulstone := false
 var soulstone_used := false
-## Windfury Totem: every ally hit (Smite included) has this chance to deal double damage.
+## Windfury Totem: every guildmate hit has this chance to deal double damage.
 var windfury := false
 const WINDFURY_CHANCE := 0.05
 var windfury_chance := WINDFURY_CHANCE
@@ -172,6 +176,10 @@ const BOSS_INTERRUPTIBLE := 0.35
 const REACTIVE := ["defensive", "self_heal", "shield", "feign", "taunt"]
 const SKILL_GCD := 1.5
 const DOT_PERIOD := 3.0
+## What casters and hunters fire between their abilities (for cast bars and the meter); others swing.
+const AUTO_ATTACK := {"mage_arcane": "Arcane Missiles", "mage_fire": "Fireball", "mage_frost": "Frostbolt",
+	"warlock_affliction": "Shadow Bolt", "warlock_destruction": "Shadow Bolt", "warlock_demonology": "Shadow Bolt",
+	"shaman_elemental": "Lightning Bolt", "druid_balance": "Wrath", "hunter_marksmanship": "Auto Shot", "hunter_survival": "Auto Shot"}
 var soulstone_timer := 0.0
 var innervate_time := 0.0
 var cleanse_timer := 6.0
@@ -192,7 +200,7 @@ func setup(priest_spec: Dictionary, party_specs: Array, enemy_specs: Array, ctx:
 	talents = priest_spec.get("talents", {})
 	for id in talents:
 		_talent_values[id] = Talents.value(talents, id)
-	known = priest_spec.get("known", ["heal", "smite"])
+	known = priest_spec.get("known", ["heal"])
 
 	priest = Unit.new()
 	priest.uid = _uid()
@@ -262,7 +270,6 @@ func setup(priest_spec: Dictionary, party_specs: Array, enemy_specs: Array, ctx:
 	fsr_keep = 0.15 + _tv("meditation") / 100.0
 	mana = max_mana * ctx.get("mana_frac", 1.0)
 	heal_power = priest_spec.get("heal_power", 0.0)
-	spell_power = priest_spec.get("spell_power", 0.0)
 	heal_mult = priest_spec.get("heal_mult", 1.0)
 	crit = priest_spec.get("crit", 0.05) + _tv("holy_specialization") / 100.0
 	soulstone = ctx.get("soulstone", false) and utils_present.has("soulstone")
@@ -449,7 +456,7 @@ func cast_time(id: String) -> float:
 	var t: float = s["cast"]
 	if s.get("channel", 0):
 		return t
-	if id == "heal" or id == "smite":
+	if id == "heal" or id == "prayer_of_healing":
 		t -= _tv("divine_fury")
 	if (id == "heal" or id == "prayer_of_healing") and serendipity > 0:
 		t *= 1.0 - serendipity * _tv("serendipity") / 100.0
@@ -496,17 +503,7 @@ func can_cast(id: String, target) -> String:
 				return "Target is Weakened Soul"
 			if id == "dispel" and _dispellable(target).is_empty():
 				return "Nothing to dispel"
-		"enemy":
-			if _enemy_target() == null:
-				return "No enemy"
 	return ""
-
-
-func _enemy_target() -> Unit:
-	if focus != null and focus.alive:
-		return focus
-	var a := alive_enemies()
-	return a[0] if not a.is_empty() else null
 
 
 func _dispellable(target: Unit) -> Dictionary:
@@ -525,8 +522,6 @@ func cast(id: String, target) -> String:
 	var s: Dictionary = Spells.BOOK[id]
 	if s["target"] == "self":
 		target = priest
-	elif s["target"] == "enemy":
-		target = _enemy_target()
 	var ct := cast_time(id)
 	if not s.get("off_gcd", false):
 		gcd = maxf(1.0, GCD / (1.0 + _haste()))
@@ -609,7 +604,7 @@ func _channel_tick() -> void:
 
 ## A heal's amount before crits: base plus its coefficient of healing power, with every bonus.
 func _base_heal(id: String) -> float:
-	return spell_amount(id, level, heal_power, spell_power, heal_mult, talents)
+	return spell_amount(id, level, heal_power, heal_mult, talents)
 
 
 ## A spell's coefficient, Empowered Healing included.
@@ -622,16 +617,15 @@ static func spell_coef(id: String, tal: Dictionary) -> float:
 	return c
 
 
-## A priest spell's amount (heal, absorb or damage) before crits and random spread: its base in level
-## units plus its coefficient of healing power (Spell Damage for Smite), times talents and buffs.
+## A priest heal's amount (or absorb) before crits and random spread: its base in level units plus its
+## coefficient of healing power, times talents and buffs. Twin Disciplines raises the instant spells.
 ## Shared with tooltips, so they show what the spell really does.
-static func spell_amount(id: String, lvl: int, hp: float, spp: float, mult: float, tal: Dictionary) -> float:
+static func spell_amount(id: String, lvl: int, hp: float, mult: float, tal: Dictionary) -> float:
 	var s: Dictionary = Spells.BOOK[id]
-	var power: float = spp if s.get("power", "") == "spell" else hp
-	var a: float = s["amount"] * Balance.scale(lvl) + spell_coef(id, tal) * power
-	if id == "smite":
-		return a * (1.0 + Talents.value(tal, "twin_disciplines") / 100.0)
-	a *= mult * (1.0 + (Talents.value(tal, "twin_disciplines") + Talents.value(tal, "spiritual_healing")) / 100.0)
+	var a: float = s["amount"] * Balance.scale(lvl) + spell_coef(id, tal) * hp
+	a *= mult * (1.0 + Talents.value(tal, "spiritual_healing") / 100.0)
+	if Spells.is_instant(id):
+		a *= 1.0 + Talents.value(tal, "twin_disciplines") / 100.0
 	if id == "renew":
 		a *= 1.0 + Talents.value(tal, "improved_renew") / 100.0
 	elif id == "shield":
@@ -640,19 +634,15 @@ static func spell_amount(id: String, lvl: int, hp: float, spp: float, mult: floa
 
 
 ## "Heals for 2412 (+756 from healing power, 71%)": what a spell does now, for its tooltip.
-static func spell_text(id: String, lvl: int, hp: float, spp: float, mult: float, tal: Dictionary) -> String:
+static func spell_text(id: String, lvl: int, hp: float, mult: float, tal: Dictionary) -> String:
 	var s: Dictionary = Spells.BOOK[id]
 	if s["amount"] <= 0:
 		return ""
-	var total := spell_amount(id, lvl, hp, spp, mult, tal)
-	var spell: bool = s.get("power", "") == "spell"
-	var power := spp if spell else hp
+	var total := spell_amount(id, lvl, hp, mult, tal)
 	var coef := spell_coef(id, tal)
-	var gain := total - spell_amount(id, lvl, 0.0, 0.0, mult, tal)
+	var gain := total - spell_amount(id, lvl, 0.0, mult, tal)
 	var what := ""
 	match id:
-		"smite":
-			what = "Deals %d Holy damage" % total
 		"shield":
 			what = "Absorbs %d damage" % total
 		"renew":
@@ -662,7 +652,7 @@ static func spell_text(id: String, lvl: int, hp: float, spp: float, mult: float,
 		"prayer_of_mending":
 			what = "Heals for %d on each jump" % total
 		"lightwell":
-			what = "Each charge heals for %d over 6 sec" % total
+			what = "Each charge heals for %d" % total
 		"prayer_of_healing", "circle_of_healing":
 			what = "Heals each for %d" % total
 		_:
@@ -673,15 +663,15 @@ static func spell_text(id: String, lvl: int, hp: float, spp: float, mult: float,
 	elif id == "penance":
 		share += " per bolt"
 	var line := "[color=#ffffff]%s[/color]" % what
-	if power > 0.0:
-		line += " [color=#8a7262](+%d from %s, %s)[/color]" % [gain, "Spell Damage" if spell else "healing power", share]
+	if hp > 0.0:
+		line += " [color=#8a7262](+%d from healing power, %s)[/color]" % [gain, share]
 	else:
-		line += " [color=#8a7262](+%s of your %s)[/color]" % [share, "Spell Damage" if spell else "healing power"]
+		line += " [color=#8a7262](+%s of your healing power)[/color]" % share
 	return line + "."
 
 
 func amount_text(id: String) -> String:
-	return spell_text(id, level, heal_power, spell_power, heal_mult, talents)
+	return spell_text(id, level, heal_power, heal_mult, talents)
 
 
 func _resolve(id: String, target) -> void:
@@ -696,18 +686,6 @@ func _resolve(id: String, target) -> void:
 			_add_grace(target)
 			if talents.get("serendipity", 0) > 0:
 				serendipity = mini(serendipity + 1, 3)
-		"smite":
-			var e: Unit = target if target != null and target.alive else _enemy_target()
-			if e != null:
-				var dmg: float = spell_amount(id, level, heal_power, spell_power, heal_mult, talents) * rng.randf_range(0.9, 1.1)
-				var smite_crit := rng.randf() < crit + (0.25 if _focus_crit else 0.0)
-				if smite_crit:
-					dmg *= 1.5
-				var label := "Smite"
-				if _windfury_proc():
-					dmg *= 2.0
-					label = "Smite (Windfury)"
-				_damage_enemy(e, dmg, priest, label, smite_crit)
 		"shield":
 			var amt: float = _base_heal(id)
 			target.remove("pws")
@@ -756,7 +734,8 @@ func _resolve(id: String, target) -> void:
 			target.auras.append({"id": "pain_suppression", "name": "Pain Suppression", "remaining": 8.0, "dmg_taken": 0.6, "icon": "suppression", "mine": true})
 			cooldowns[id] = s["cooldown"]
 		"lightwell":
-			lightwell = {"charges": s["charges"], "remaining": 60.0}
+			lightwell = {"charges": s["charges"], "remaining": s["duration"]}
+			lightwell_tick = 0.0
 			cooldowns[id] = s["cooldown"]
 			log_line.emit("You create a Lightwell.")
 	if s.has("cooldown"):
@@ -797,6 +776,7 @@ func _heal(target, amount: float, can_crit: bool, source: String) -> float:
 	stats["healing"] += eff
 	stats["overheal"] += amount - eff
 	priest.healing_done += eff
+	_meter(priest.healing_by, Spells.display_name(source, level), eff)
 	floating.emit(target, ("+%d!" if is_crit else "+%d") % int(amount), "crit_heal" if is_crit else "heal")
 	_log_heal(Spells.display_name(source, level), target, amount, eff, is_crit)
 	if is_crit:
@@ -825,28 +805,45 @@ func _log_heal(spell: String, target: Unit, amount: float, eff: float, is_crit: 
 		(" (%d overhealed)" % int(over)) if over >= 1.0 else ""])
 
 
-## Healing from something other than the priest's spells (guildmates, potions, healthstones).
-func _heal_other(target: Unit, amount: float) -> void:
+## Healing from something other than the priest's spells (guildmates, potions, healthstones), credited
+## to `source` on the meter under `label`.
+func _heal_other(target: Unit, amount: float, source: Unit = null, label := "") -> void:
 	if not target.alive:
 		return
 	amount *= _mult(target, "heal_taken")
 	var eff := minf(amount, target.max_hp - target.hp)
 	target.hp += eff
+	if source != null and label != "":
+		source.healing_done += eff
+		_meter(source.healing_by, label, eff)
 	if eff > 1.0:
 		floating.emit(target, "+%d" % int(eff), "heal_other")
+
+
+## Adds to a damage meter breakdown.
+func _meter(by: Dictionary, label: String, amount: float) -> void:
+	by[label] = by.get(label, 0.0) + amount
+
+
+## What a guildmate's auto attacks are called: their bolt for casters, Auto Shot for hunters, Melee.
+static func auto_attack(spec_id: String) -> String:
+	return AUTO_ATTACK.get(spec_id, "Melee")
 
 
 # ---------------------------------------------------------------- damage
 
 ## Damage to an enemy. Spell damage from the priest (label set) shows on the nameplate and in the log;
 ## guildmates' abilities (label set) only go to the log, to keep the nameplates readable.
-func _damage_enemy(e: Unit, amount: float, source: Unit, label := "", is_crit := false) -> void:
+## `meter` names the damage on the meter when there is no log label (damage over time ticks).
+func _damage_enemy(e: Unit, amount: float, source: Unit, label := "", is_crit := false, meter := "") -> void:
 	if not e.alive:
 		return
 	amount *= (1.0 + _group("enemy_vuln") / 100.0) * _strongest(e, "dmg_taken")
 	e.hp -= amount
 	if source != null:
 		source.damage_done += amount
+		var what := label.trim_suffix(" (Windfury)") if label != "" else (meter if meter != "" else auto_attack(source.spec_id))
+		_meter(source.damage_by, what, amount)
 	if source == priest and label != "":
 		floating.emit(e, ("-%d!" if is_crit else "-%d") % int(amount), "spell_crit" if is_crit else "spell_damage")
 		combat_log.emit("damage", "Your [color=#%s]%s[/color] hits %s for [color=#%s]%d[/color]%s." % [LOG_SPELL, label, e.name,
@@ -863,7 +860,8 @@ func _damage_enemy(e: Unit, amount: float, source: Unit, label := "", is_crit :=
 			focus = null
 
 
-func damage(target: Unit, amount: float, attacker: Unit, label := "") -> void:
+## `meter` names the damage on the meter when there is no log label (damage over time ticks).
+func damage(target: Unit, amount: float, attacker: Unit, label := "", meter := "") -> void:
 	if target == null or not target.alive or over:
 		return
 	if target.spirit > 0.0:
@@ -881,6 +879,8 @@ func damage(target: Unit, amount: float, attacker: Unit, label := "") -> void:
 		amount *= 3.0
 	target.last_attacker = attacker
 	var total := amount
+	target.damage_taken += total
+	_meter(target.taken_by, label if label != "" else (meter if meter != "" else "Melee"), total)
 	# Absorbs: shields first, then Divine Aegis.
 	for au in target.auras.duplicate():
 		if amount <= 0.0:
@@ -894,6 +894,7 @@ func damage(target: Unit, amount: float, attacker: Unit, label := "") -> void:
 		stats["absorbed"] += used
 		if au.get("mine", false):
 			priest.healing_done += used
+			_meter(priest.healing_by, au["name"], used)
 			combat_log.emit("heal", "Your [color=#%s]%s[/color] absorbs [color=#%s]%d[/color] damage on %s." % [LOG_SPELL, au["name"],
 				LOG_HEAL, int(used), "you" if target.is_priest else target.name])
 		if au["id"] == "pws" and attacker != null and talents.get("reflective_shield", 0) > 0:
@@ -944,7 +945,7 @@ func _on_damaged(m: Unit, total: float) -> void:
 		log_line.emit("%s uses Evasion." % m.name)
 	if f < 0.2 and m.mod("last_stand") > 0.0 and not m.used.has("last_stand") and m.hp > 0.0:
 		m.used["last_stand"] = true
-		_heal_other(m, m.max_hp * m.mod("last_stand") / 100.0)
+		_heal_other(m, m.max_hp * m.mod("last_stand") / 100.0, m, "Last Stand")
 		log_line.emit("%s uses Last Stand!" % m.name)
 	if f < 0.15 and m.mod("ice_block") > 0.0 and not m.used.has("ice_block") and m.hp > 0.0:
 		m.used["ice_block"] = true
@@ -953,13 +954,13 @@ func _on_damaged(m: Unit, total: float) -> void:
 		log_line.emit("%s uses Ice Block!" % m.name)
 	if f < 0.3 and _party_has("healthstone") and not m.used.has("healthstone") and m.hp > 0.0:
 		m.used["healthstone"] = true
-		_heal_other(m, 50.0 * u * (1.0 + _group("healthstone_bonus") / 100.0))
+		_heal_other(m, 50.0 * u * (1.0 + _group("healthstone_bonus") / 100.0), m, "Healthstone")
 		log_line.emit("%s eats a Healthstone." % m.name)
 	elif f < 0.25 and healing_potions > 0 and not m.used.has("potion") and m.hp > 0.0:
 		m.used["potion"] = true
 		healing_potions -= 1
 		potions_used["healing"] += 1
-		_heal_other(m, healing_potion_amount)
+		_heal_other(m, healing_potion_amount, m, "Healing Potion")
 		log_line.emit("%s drinks a healing potion." % m.name)
 
 
@@ -1087,22 +1088,23 @@ func _tick_auras(unit: Unit, dt: float) -> void:
 						stats["healing"] += eff
 						stats["overheal"] += amt - eff
 						priest.healing_done += eff
+						_meter(priest.healing_by, au["name"], eff)
 						floating.emit(unit, "+%d" % int(amt), "hot")
 						_log_heal(au["name"], unit, amt, eff, false)
 					else:
-						_heal_other(unit, amt)
+						_heal_other(unit, amt, au.get("source", unit), au["name"])
 				elif au.has("pdot"):
 					# A guildmate's damage over time on an enemy
 					var amt: float = au["pdot"] * rng.randf_range(0.95, 1.05)
 					var src: Unit = au.get("source")
-					_damage_enemy(unit, amt, src)
+					_damage_enemy(unit, amt, src, "", false, au["name"])
 					if au.get("leech", 0.0) > 0.0 and src != null and src.alive:
-						_heal_other(src, amt * au["leech"] / 100.0)
+						_heal_other(src, amt * au["leech"] / 100.0, src, au["name"])
 					if not unit.alive:
 						return
 				elif au.has("dot"):
 					var src = au.get("source")
-					damage(unit, au["dot"], src, au["name"] if src != null and src.alive else "")
+					damage(unit, au["dot"], src, au["name"] if src != null and src.alive else "", au["name"])
 					if not unit.alive:
 						return
 		if au["remaining"] <= 0.0 and unit.auras.has(au):
@@ -1328,7 +1330,7 @@ func _use_skill(m: Unit, sk: Dictionary, targets: Array) -> bool:
 		"self_heal":
 			if m.frac() >= sk["at"]:
 				return false
-			_heal_other(m, m.max_hp * sk["pct"] / 100.0)
+			_heal_other(m, m.max_hp * sk["pct"] / 100.0, m, sk["name"])
 			_announce(m, sk)
 		"shield":
 			if m.has("skill_" + sk["id"]):
@@ -1360,7 +1362,7 @@ func _skill_hit(m: Unit, sk: Dictionary, e: Unit, enemy_count: int) -> void:
 		dmg *= 2.0
 	_damage_enemy(e, dmg, m, sk["name"], is_crit)
 	if sk.has("leech"):
-		_heal_other(m, dmg * sk["leech"] / 100.0)
+		_heal_other(m, dmg * sk["leech"] / 100.0, m, sk["name"])
 	if sk.has("debuff") and e.alive:
 		_apply_debuff(m, sk, e, sk["debuff"].get("dur", 10.0))
 
@@ -1645,6 +1647,9 @@ func _use_ability(e: Unit, ab: Dictionary, tgt) -> void:
 			log_line.emit("%s summons [color=#ffd100]%s[/color]!" % [e.name, nm])
 
 
+## The Lightwell heals the ally with the lowest health (as a share of their maximum) every half second,
+## one charge per heal, and waits while everyone is at full health. It fades when its charges run out
+## or its time is up.
 func _tick_lightwell(dt: float) -> void:
 	if lightwell.is_empty():
 		return
@@ -1652,16 +1657,19 @@ func _tick_lightwell(dt: float) -> void:
 	lightwell_tick -= dt
 	if lightwell["remaining"] <= 0.0 or lightwell["charges"] <= 0:
 		lightwell = {}
+		log_line.emit("Your Lightwell fades.")
 		return
-	if lightwell_tick <= 0.0:
-		lightwell_tick = 1.0
-		for m in alive_party():
-			if m.frac() < 0.5 and not m.has("lightwell_renew"):
-				var per: float = _base_heal("lightwell") / 3.0
-				m.auras.append({"id": "lightwell_renew", "name": "Lightwell Renew", "remaining": 6.0, "period": 2.0,
-					"tick_timer": 2.0, "heal": per, "icon": "lightwell", "mine": true})
-				lightwell["charges"] -= 1
-				return
+	if lightwell_tick > 0.0:
+		return
+	lightwell_tick += Spells.BOOK["lightwell"]["period"]
+	var low: Unit = null
+	for m in alive_party():
+		if m.spirit <= 0.0 and m.hp < m.max_hp - 0.5 and (low == null or m.frac() < low.frac()):
+			low = m
+	if low == null:
+		return
+	_heal(low, _base_heal("lightwell"), true, "lightwell")
+	lightwell["charges"] -= 1
 
 
 func _check_end(dt: float) -> void:

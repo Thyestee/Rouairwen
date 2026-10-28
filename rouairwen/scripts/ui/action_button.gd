@@ -83,6 +83,13 @@ func _draw_overlay() -> void:
 	# Active-cast highlight
 	if not is_potion and not engine.casting.is_empty() and engine.casting["id"] == spell_id:
 		overlay.draw_rect(Rect2(Vector2.ZERO, s), Color("ffd86b"), false, 3.0)
+	# The Lightwell's charges left while it stands
+	if spell_id == "lightwell" and not engine.lightwell.is_empty():
+		var glow := 0.55 + 0.3 * sin(Time.get_ticks_msec() / 150.0)
+		overlay.draw_rect(Rect2(Vector2.ZERO, s), Color(1, 0.95, 0.6, glow), false, 2.5)
+		var lw := str(engine.lightwell["charges"])
+		overlay.draw_string_outline(font, Vector2(0, s.y - 4), lw, HORIZONTAL_ALIGNMENT_RIGHT, s.x - 4, 14, 3, Color.BLACK)
+		overlay.draw_string(font, Vector2(0, s.y - 4), lw, HORIZONTAL_ALIGNMENT_RIGHT, s.x - 4, 14, Color("fffbe0"))
 	if is_potion:
 		var n := str(engine.mana_potions)
 		overlay.draw_string_outline(font, Vector2(0, s.y - 4), n, HORIZONTAL_ALIGNMENT_RIGHT, s.x - 4, 13, 3, Color.BLACK)

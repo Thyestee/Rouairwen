@@ -1,20 +1,19 @@
 class_name Spells
 ## The priest's spellbook. Amounts are in level units (multiplied by Balance.scale(level)).
 ##
-## target: "ally" (a party frame), "enemy", "self" or "none".
+## target: "ally" (a party frame), "self" or "none".
 ##
-## Like in WoW, every heal adds a share of Thyeste's healing power (Healing and Spell Damage from gear),
-## and Smite a share of her Spell Damage: the spell's coefficient ("coef", for one "amount": per tick
-## total for Renew, per bolt, per target, per charge). Direct spells get their cast time / 3.5 sec
-## (instants count as 1.5 sec), heals over time their duration / 15 sec split between the ticks,
-## channels their channel time / 3.5 split between the bolts, and party-wide heals half of that.
+## Like in WoW, every heal adds a share of Thyeste's healing power (Healing and Spell Damage from gear):
+## the spell's coefficient ("coef", for one "amount": per tick total for Renew, per bolt, per target,
+## per charge). Direct spells get their cast time / 3.5 sec (instants count as 1.5 sec), heals over
+## time their duration / 15 sec split between the ticks,
+## channels their channel time / 3.5 split between the bolts (the Lightwell's 20 heals over 10 sec count as one),
+## and party-wide heals half of that.
 ## Power Word: Shield gets 30%, as in The Burning Crusade.
 
 const BOOK := {
 	"heal": {"name": "Lesser Heal", "level": 1, "cast": 2.5, "mana": 18, "amount": 56, "coef": 2.5 / 3.5, "target": "ally", "icon": "heal",
 		"desc": "A slow, efficient heal on one target."},
-	"smite": {"name": "Smite", "level": 1, "cast": 2.0, "mana": 9, "amount": 28, "coef": 2.0 / 3.5, "power": "spell", "target": "enemy", "icon": "smite",
-		"desc": "Holy damage to an enemy."},
 	"shield": {"name": "Power Word: Shield", "level": 6, "cast": 0.0, "mana": 19, "amount": 61, "coef": 0.3, "target": "ally", "icon": "shield",
 		"cooldown": 4.0, "desc": "Absorbs damage for 30s. The target is Weakened Soul and can't be shielded again for 15s."},
 	"renew": {"name": "Renew", "level": 8, "cast": 0.0, "mana": 15, "amount": 52, "coef": 15.0 / 15.0, "target": "ally", "icon": "renew",
@@ -37,15 +36,20 @@ const BOOK := {
 		"cooldown": 90.0, "talent": true, "desc": "The target deals 20% more damage for 15s. On yourself: casts 20% faster."},
 	"pain_suppression": {"name": "Pain Suppression", "level": 1, "cast": 0.0, "mana": 8, "amount": 0, "target": "ally", "icon": "suppression",
 		"cooldown": 60.0, "off_gcd": true, "talent": true, "desc": "The target takes 40% less damage for 8s."},
-	"lightwell": {"name": "Lightwell", "level": 1, "cast": 0.5, "mana": 30, "amount": 51, "coef": 6.0 / 15.0, "target": "none", "icon": "lightwell",
-		"cooldown": 120.0, "charges": 8, "talent": true,
-		"desc": "Creates a Lightwell for 60s. Members below 50% health draw from it, healing over 6s. 8 charges."},
+	"lightwell": {"name": "Lightwell", "level": 1, "cast": 0.5, "mana": 30, "amount": 20, "coef": 10.0 / 3.5 / 20.0, "target": "none", "icon": "lightwell",
+		"cooldown": 120.0, "charges": 20, "duration": 20.0, "period": 0.5, "talent": true,
+		"desc": "Creates a Lightwell for 20s. Every 0.5s it heals the ally with the lowest health, and waits while everyone is at full health. 20 charges."},
 	"circle_of_healing": {"name": "Circle of Healing", "level": 1, "cast": 0.0, "mana": 28, "amount": 33, "coef": 1.5 / 3.5 / 2.0, "target": "ally", "icon": "coh",
 		"cooldown": 6.0, "max_targets": 5, "talent": true, "desc": "Instantly heals the 5 most injured members of your party."},
 }
 
 const ORDER := ["heal", "flash_heal", "renew", "shield", "penance", "prayer_of_mending", "circle_of_healing",
-	"prayer_of_healing", "dispel", "smite", "power_infusion", "pain_suppression", "inner_focus", "lightwell"]
+	"prayer_of_healing", "dispel", "power_infusion", "pain_suppression", "inner_focus", "lightwell"]
+
+## Cast at once (not cast or channeled): what Twin Disciplines raises.
+static func is_instant(id: String) -> bool:
+	return BOOK[id]["cast"] == 0.0 and not BOOK[id].has("channel")
+
 
 static func display_name(id: String, level: int) -> String:
 	if id == "heal":

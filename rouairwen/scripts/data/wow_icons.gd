@@ -11,7 +11,7 @@ const USER_DIR := "user://icons"
 const URL := "https://wow.zamimg.com/images/wow/icons/large/%s.jpg"
 
 const SPELLS := {
-	"smite": "spell_holy_holysmite", "shield": "spell_holy_powerwordshield", "renew": "spell_holy_renew",
+	"shield": "spell_holy_powerwordshield", "renew": "spell_holy_renew",
 	"dispel": "spell_holy_dispelmagic", "flash_heal": "spell_holy_flashheal", "prayer_of_healing": "spell_holy_prayerofhealing02",
 	"penance": "spell_holy_penance", "prayer_of_mending": "spell_holy_prayerofmendingtga", "inner_focus": "spell_frost_windwalkon",
 	"power_infusion": "spell_holy_powerinfusion", "pain_suppression": "spell_holy_painsupression",
@@ -38,7 +38,7 @@ const AURAS := {
 	"renew": "spell_holy_renew", "pws": "spell_holy_powerwordshield", "pom": "spell_holy_prayerofmendingtga",
 	"grace": "spell_holy_hopeandgrace", "inspiration": "inv_shield_06", "aegis": "spell_holy_devineaegis",
 	"power_infusion": "spell_holy_powerinfusion", "pain_suppression": "spell_holy_painsupression",
-	"lightwell_renew": "spell_holy_summonlightwell", "shield_wall": "ability_warrior_shieldwall",
+	"shield_wall": "ability_warrior_shieldwall",
 	"evasion": "spell_shadow_shadowward", "barkskin": "spell_nature_stoneclawtotem", "ice_block": "spell_frost_frost",
 }
 
@@ -73,6 +73,11 @@ const CONSUMABLES := {
 	"Nightfin Soup": "inv_drink_17", "Runn Tum Tuber Surprise": "inv_misc_food_63",
 }
 
+## Class icons, for the damage meter.
+const CLASSES := {"warrior": "classicon_warrior", "shaman": "classicon_shaman", "rogue": "classicon_rogue",
+	"hunter": "classicon_hunter", "mage": "classicon_mage", "warlock": "classicon_warlock", "druid": "classicon_druid",
+	"priest": "classicon_priest"}
+
 static var _cache := {}
 
 
@@ -105,6 +110,10 @@ static func aura(id: String) -> String:
 
 static func consumable(rank_name: String) -> String:
 	return CONSUMABLES.get(rank_name, "")
+
+
+static func class_icon(class_id: String) -> String:
+	return CLASSES.get(class_id, "")
 
 
 ## The icon for an aura: a buff by id, a guildmate ability's by its icon id, a debuff by name, then by kind.
@@ -162,7 +171,7 @@ static func clear_cache() -> void:
 ## Every icon the game can show, for the download tool.
 static func all_names() -> Array:
 	var out := []
-	for d in [SPELLS, TALENTS, AURAS, CONSUMABLES, DEBUFF_KINDS, TalentIcons.ABILITIES, TalentIcons.TALENTS]:
+	for d in [SPELLS, TALENTS, AURAS, CONSUMABLES, DEBUFF_KINDS, CLASSES, TalentIcons.ABILITIES, TalentIcons.TALENTS]:
 		for k in d:
 			if not (d[k] in out):
 				out.append(d[k])

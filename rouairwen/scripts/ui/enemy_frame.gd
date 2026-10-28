@@ -18,7 +18,7 @@ func _init() -> void:
 	custom_minimum_size = Vector2(230, 78 + TOP)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	tooltip_text = "Click to focus your guildmates' attacks (and Smite) on this enemy."
+	tooltip_text = "Click to focus your guildmates' attacks on this enemy."
 
 
 func _gui_input(ev: InputEvent) -> void:

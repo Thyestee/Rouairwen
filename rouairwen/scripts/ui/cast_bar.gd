@@ -6,10 +6,6 @@ class_name CastBar
 const H := 15.0
 ## How long an instant ability's name stays on the bar.
 const FLASH := 0.9
-## What casters and hunters fire between their abilities; everyone else swings ("Auto Attack").
-const AUTO := {"mage_arcane": "Arcane Missiles", "mage_fire": "Fireball", "mage_frost": "Frostbolt",
-	"warlock_affliction": "Shadow Bolt", "warlock_destruction": "Shadow Bolt", "warlock_demonology": "Shadow Bolt",
-	"shaman_elemental": "Lightning Bolt", "druid_balance": "Wrath", "hunter_marksmanship": "Auto Shot", "hunter_survival": "Auto Shot"}
 const CAST := Color("ffb52a")
 const CHANNEL := Color("6ee06e")
 const ENEMY_CAST := Color("ff7a2a")
@@ -55,8 +51,9 @@ static func draw(ci: CanvasItem, rect: Rect2, unit, engine: CombatEngine) -> voi
 		if engine.alive_enemies().is_empty():
 			return
 		frac = 1.0 - unit.attack_timer / maxf(unit.attack_total, 0.01)
-		text = AUTO.get(unit.spec_id, "Auto Attack")
-		col = ClassData.color(unit.class_id).darkened(0.25) if AUTO.has(unit.spec_id) else Color("9a8a7a")
+		var auto: bool = CombatEngine.AUTO_ATTACK.has(unit.spec_id)
+		text = CombatEngine.auto_attack(unit.spec_id) if auto else "Auto Attack"
+		col = ClassData.color(unit.class_id).darkened(0.25) if auto else Color("9a8a7a")
 		dim = true
 	var font := Style.bold_font()
 	ci.draw_rect(rect, Color(0.02, 0.01, 0.01, 0.8 if dim else 0.92))

@@ -14,9 +14,11 @@ godot --path rouairwen
 
 **Combat**: your guildmates fight on their own; you keep them alive. Hover a party frame and press a spell key to cast on it, or click a frame to target it and click a spell. By default the keys follow the number row, then the Q/E/R/T positions (A/Z/E/R on AZERTY); `F` drinks a mana potion, `Space` pauses, `Esc` cancels a cast. Click an enemy to focus the party's attacks on it. A cast bar sits on top of every party frame and enemy nameplate: the spell being cast, the ability just used, or the next attack filling up (a caster's Frostbolt or Shadow Bolt, a hunter's Auto Shot, a melee swing).
 
+**Damage meter**: in the style of the Details! addon, at the bottom left of every fight: class-coloured bars for **Damage Done**, **Healing Done** (shields' absorbs included) or **Damage Taken**, each with its per-second rate and share. Click its title to switch between them (right-click goes back), and **Current**/**Overall** to see this fight or the whole outing so far; hover a bar for the breakdown by ability.
+
 **Action bar and keys**: in the **Spellbook** (Talents & Spells), drag a spell or use its arrows to move it to another action bar slot. **Key bindings** (in the Spellbook and in Options) rebinds every slot, the mana potion and pause, Shift/Ctrl/Alt combinations included; keys are saved by physical position, so they stay put on any keyboard layout.
 
-**Healing power** works like in WoW: Healing and Spell Damage from gear add up to Thyeste's healing power, and every heal adds a share of it, its coefficient. A direct heal gets its cast time / 3.5 sec (Lesser Heal 71%, Flash Heal 43%), Renew 100% split between its 5 ticks, Penance its channel time / 3.5 split between its bolts, Prayer of Healing and Circle of Healing half the usual share on each target, Power Word: Shield 30%; Smite adds 57% of Spell Damage. Empowered Healing raises Heal's coefficient. Spell tooltips and the Spellbook show what each spell heals with your gear. Healing and Spell Damage on items grow 6% a level like the spells do, so a coefficient is worth as much at every level.
+**Healing power** works like in WoW: Healing and Spell Damage from gear add up to Thyeste's healing power, and every heal adds a share of it, its coefficient. A direct heal gets its cast time / 3.5 sec (Lesser Heal 71%, Flash Heal 43%), Renew 100% split between its 5 ticks, Penance its channel time / 3.5 split between its bolts (the Lightwell's 20 heals over 10 sec count as one channel, 14% each), Prayer of Healing and Circle of Healing half the usual share on each target, Power Word: Shield 30%. Empowered Healing raises Heal's coefficient. Thyeste is a pure healer: she has no damage spell, and Twin Disciplines raises the healing and absorption of her instant spells instead. Spell tooltips and the Spellbook show what each spell heals with your gear. Healing and Spell Damage on items grow 6% a level like the spells do, so a coefficient is worth as much at every level.
 
 ## Activities
 
@@ -60,7 +62,7 @@ Share the exe through a GitHub Release rather than committing it. It isn't code-
 
 ## Launcher (auto-update)
 
-`launcher/` is a small separate Godot project: **Lumens Launcher.exe** checks the repository's latest GitHub release, and when its tag differs from the installed version it downloads `Lumens-windows.zip`, installs `Lumens.exe` into `%APPDATA%\Lumens Launcher\game` and offers **Play**. Offline, or if GitHub can't be reached, it plays the installed version. Saves stay in the game's own folder, so updates never touch them.
+`launcher/` is a small separate Godot project: **Lumens Launcher.exe** checks the repository's latest GitHub release, and when its tag differs from the installed version it downloads `Lumens-windows.zip`, installs `Lumens.exe` into `%APPDATA%\Lumens Launcher\game` and offers **Play**. Offline, or if GitHub can't be reached, it plays the installed version. Saves stay in the game's own folder, so updates never touch them. Its window shows the guild's banner in front of Orgrimmar's gate, beside the latest release's notes.
 
 Publishing a new release is all it takes for every launcher to pick it up, as long as the release keeps a `Lumens-windows.zip` asset with `Lumens.exe` inside. Drafts and pre-releases are skipped (GitHub's "latest release" ignores them), so they can be tested before friends get them.
 

@@ -70,7 +70,7 @@ const SPECS := {
 const UTILS := {
 	"battle_shout": {"name": "Battle Shout", "desc": "Melee guildmates deal 5% more damage."},
 	"totems": {"name": "Mana Spring Totem", "desc": "Your mana regeneration is increased by 10%."},
-	"windfury": {"name": "Windfury Totem", "desc": "Every hit by an ally (your Smite included) has a 5% chance to deal double damage."},
+	"windfury": {"name": "Windfury Totem", "desc": "Every hit by a guildmate has a 5% chance to deal double damage."},
 	"poison_cleansing": {"name": "Poison Cleansing Totem", "desc": "Removes a poison from the party every 6s."},
 	"evasion": {"name": "Evasion", "desc": "Once per fight when attacked below 50% health: takes 50% less damage for 8s."},
 	"trueshot_aura": {"name": "Trueshot Aura", "desc": "Physical guildmates deal 4% more damage."},

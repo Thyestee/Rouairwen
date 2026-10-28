@@ -104,7 +104,7 @@ static func power_points(ilvl: int) -> float:
 	return POWER_K * Balance.scale(l) / l
 
 
-## Spell Damage that doubles a caster guildmate's damage (and about doubles Smite).
+## Spell Damage that doubles a caster guildmate's damage.
 static func spell_power_ref(level: int) -> float:
 	return 8.4 * maxi(level, 2) * power_points(level)
 
@@ -227,7 +227,6 @@ static func compute_stats(class_id: String, kind: String, level: int, gear: Dict
 	# Spell Damage gear raises healing too ("damage and healing done by magical spells"). Spells add a
 	# coefficient of these; heal_mult is what they do for Lesser Heal, the healer's overall power.
 	s["heal_power"] = s["heal"] + s["sp"]
-	s["spell_power"] = s["sp"]
 	s["heal_mult"] = 1.0 + s["heal_power"] / healing_ref(level)
 	return s
 
@@ -281,7 +280,7 @@ static func weights(class_id: String, kind: String, level: int) -> Dictionary:
 			w["int"] = 0.25 / b["int"] * 0.6 + 0.01 / int_per_crit(level) * 0.5
 			w["spi"] = 0.22 / b["spi"] * 0.5
 			w["crit"] = 0.005
-			w["sp"] = 1.0 / healing_ref(level) + 0.05 / spell_power_ref(level)
+			w["sp"] = 1.0 / healing_ref(level)
 		_:
 			var k: float = 0.45 / ap0 * (0.6 if kind == "tank" else 1.0)
 			w["ap"] = k
