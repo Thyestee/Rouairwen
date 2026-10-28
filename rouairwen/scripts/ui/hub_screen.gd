@@ -1,20 +1,10 @@
 class_name HubScreen
 extends Control
-## Orgrimmar: the guild's home. A top bar, a district menu and one page at a time.
+## Orgrimmar: the guild's home. A top bar, the map of Orgrimmar as the menu, and one page at a time
+## over a backdrop of the place it's in.
 
-const NAV := [
-	["guild", "Guild Roster", "Gear and guildmates"],
-	["character", "Character Sheet", "Stats & talents"],
-	["quests", "Quest Board", "Valley of Strength"],
-	["dungeons", "Dungeons", "Cleft of Shadow"],
-	["raids", "Raids", "Grommash Hold"],
-	["prestige", "Prestige", "Hall of Legends"],
-	["recruit", "Recruitment", "Recruit & train"],
-	["shop", "Supplies", "The Drag"],
-	["missions", "Guild Missions", "The War Table"],
-	["hall", "Guild Hall", "Upgrades & chronicle"],
-	["talents", "Talents & Spells", "Valley of Spirits"],
-]
+## Pages reached from buttons under the map rather than a place on it.
+const BUTTONS := [["character", "Character Sheet"], ["guild", "Guild Roster"]]
 
 var main
 var page := "quests"
@@ -22,6 +12,27 @@ var top_bar: PanelContainer
 var nav_box: VBoxContainer
 var content: MarginContainer
 var nav_buttons := {}
+var map: OrgrimmarMap
+var backdrop: Backdrop
+
+
+## The page panel's background: light at the top, so the place shows behind the page's title, and
+## dark below, where the page's text is.
+class Shade:
+	extends Control
+
+	const COLOR := Color(0.09, 0.035, 0.025)
+
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func _draw() -> void:
+		var fade := minf(190.0, size.y * 0.32)
+		var top := Color(COLOR, 0.3)
+		var bottom := Color(COLOR, 0.8)
+		draw_polygon(PackedVector2Array([Vector2.ZERO, Vector2(size.x, 0), Vector2(size.x, fade), Vector2(0, fade)]),
+			PackedColorArray([top, top, bottom, bottom]))
+		draw_rect(Rect2(0, fade, size.x, size.y - fade), bottom)
 var selected_dungeon := ""
 var selected_raid := ""
 var selected_member = "priest"
@@ -31,7 +42,9 @@ var recruit_tab := "recruits"
 
 
 func _ready() -> void:
-	add_child(Backdrop.new("orgrimmar"))
+	backdrop = Backdrop.new("orgrimmar")
+	backdrop.scene = OrgrimmarMap.scene_for(page)
+	add_child(backdrop)
 	var root := Style.vbox(0)
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(root)
@@ -46,13 +59,14 @@ func _ready() -> void:
 		bm.add_theme_constant_override("margin_" + side, 10)
 	bm.add_child(body)
 	root.add_child(bm)
-	var nav_panel := Style.panel(Color(0.08, 0.03, 0.02, 0.9), Style.C["border"], 2, 8)
-	nav_panel.custom_minimum_size.x = 210
+	var nav_panel := Style.panel(Color(0.08, 0.03, 0.02, 0.92), Style.C["border"], 2, 6)
+	nav_panel.custom_minimum_size.x = 270
 	body.add_child(nav_panel)
-	nav_box = Style.vbox(4)
+	nav_box = Style.vbox(6)
 	nav_panel.add_child(nav_box)
-	var content_panel := Style.panel(Color(0.09, 0.035, 0.025, 0.9), Style.C["border"], 2, 0)
+	var content_panel := Style.panel(Color(0, 0, 0, 0), Style.C["border"], 2, 0)
 	content_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content_panel.add_child(Shade.new())
 	body.add_child(content_panel)
 	content = MarginContainer.new()
 	for side in ["left", "right", "top", "bottom"]:
@@ -85,6 +99,8 @@ func refresh() -> void:
 		return
 	_build_top()
 	_update_nav()
+	backdrop.hall_level = Game.hall()
+	backdrop.go_to(OrgrimmarMap.scene_for(page))
 	Style.clear(content)
 	match page:
 		"guild":
@@ -131,9 +147,9 @@ func _build_top() -> void:
 	Style.clear(top_bar)
 	var h := Style.hbox(14)
 	top_bar.add_child(h)
-	var em := GuildEmblem.new()
-	em.custom_minimum_size = Vector2(52, 52)
-	h.add_child(em)
+	var banner := GuildBanner.new()
+	banner.custom_minimum_size = Vector2(64, GuildBanner.height_for(64))
+	h.add_child(banner)
 	var v := Style.vbox(2)
 	var p := Game.priest()
 	var row := Style.hbox(10)
@@ -168,55 +184,28 @@ func _build_nav() -> void:
 	var t := Style.label("Orgrimmar", 20, Style.C["gold"], true)
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	nav_box.add_child(t)
-	nav_box.add_child(HSeparator.new())
-	for n in NAV:
-		var b := Button.new()
+	map = OrgrimmarMap.new()
+	map.hub = self
+	nav_box.add_child(map)
+	var row := Style.hbox(6)
+	for n in BUTTONS:
+		var b := Style.button(n[1], open_page.bind(n[0]))
 		b.toggle_mode = true
-		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		b.custom_minimum_size = Vector2(0, 42)
-		b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		b.focus_mode = Control.FOCUS_NONE
-		b.pressed.connect(open_page.bind(n[0]))
-		var v := Style.vbox(0)
-		v.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		v.offset_left = 12
-		v.offset_top = 1
-		var l1 := Style.label(n[1], 16, Style.C["text"])
-		l1.add_theme_font_override("font", Style.bold_font())
-		l1.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var l2 := Style.label(n[2], 12, Style.C["muted"])
-		l2.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		v.add_child(l1)
-		v.add_child(l2)
-		b.add_child(v)
-		b.set_meta("sub", l2)
-		nav_box.add_child(b)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(b)
 		nav_buttons[n[0]] = b
-	nav_box.add_child(Style.spacer())
-	nav_box.add_child(Style.button("Options", _options))
-	nav_box.add_child(Style.button("Save & Exit", _save_exit))
+	nav_box.add_child(row)
+	var sys := Style.hbox(6)
+	for b in [Style.button("Options", _options), Style.button("Save & Exit", _save_exit)]:
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		sys.add_child(b)
+	nav_box.add_child(sys)
 
 
 func _update_nav() -> void:
 	for id in nav_buttons:
-		var b: Button = nav_buttons[id]
-		b.button_pressed = id == page
-		var sub: Label = b.get_meta("sub")
-		var locked: bool = (id == "dungeons" and Game.level() < 10) or (id in ["raids", "prestige"] and Game.level() < Balance.MAX_LEVEL)
-		b.modulate = Color(1, 1, 1, 0.55) if locked else Color.WHITE
-		if id == "dungeons" and locked:
-			sub.text = "Opens at level 10"
-		elif id in ["raids", "prestige"] and locked:
-			sub.text = "Opens at level 60"
-		elif id == "prestige":
-			sub.text = "Rank #%d · %d to spend" % [Prestige.rank(Game.prestige_total()), Game.prestige()]
-		elif id == "talents" and Game.talent_points_free() > 0:
-			sub.text = "%d point(s) to spend!" % Game.talent_points_free()
-		else:
-			for n in NAV:
-				if n[0] == id:
-					sub.text = n[2]
+		nav_buttons[id].set_pressed_no_signal(id == page)
+	map.queue_redraw()
 
 
 func _options() -> void:

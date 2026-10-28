@@ -217,13 +217,10 @@ func show_title() -> void:
 	center.add_child(p)
 	var v := Style.vbox(12)
 	p.add_child(v)
-	var emblem := GuildEmblem.new()
-	emblem.custom_minimum_size = Vector2(96, 96)
-	emblem.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	v.add_child(emblem)
-	var t := Style.label("<Lumens>", 52, Style.C["gold"], true)
-	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	v.add_child(t)
+	var banner := GuildBanner.new()
+	banner.custom_minimum_size = Vector2(300, GuildBanner.height_for(300))
+	banner.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	v.add_child(banner)
 	var sub := Style.label("A guild of the Horde, led by a priest", 16, Style.C["muted"])
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(sub)

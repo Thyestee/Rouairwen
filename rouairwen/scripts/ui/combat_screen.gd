@@ -62,7 +62,7 @@ func _ready() -> void:
 	# Enemies
 	enemy_row = Style.hbox(10)
 	enemy_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	enemy_row.custom_minimum_size.y = 172
+	enemy_row.custom_minimum_size.y = 172 + 2 * EnemyFrame.TOP
 	root.add_child(enemy_row)
 	# Party
 	var pc := CenterContainer.new()
@@ -186,7 +186,7 @@ func start_fight() -> void:
 		var fr := UnitFrame.new()
 		fr.unit = unit
 		fr.engine = eng
-		fr.custom_minimum_size = Vector2(200, 70) if eng.party.size() <= 5 else Vector2(196, 64)
+		fr.custom_minimum_size = Vector2(200, 70 + UnitFrame.TOP) if eng.party.size() <= 5 else Vector2(196, 64 + UnitFrame.TOP)
 		fr.clicked.connect(_on_frame_clicked)
 		fr.hover_changed.connect(_on_frame_hover)
 		party_grid.add_child(fr)
@@ -234,7 +234,7 @@ func _rebuild_enemies() -> void:
 			ef.unit = e
 			ef.engine = eng
 			if e.is_boss:
-				ef.custom_minimum_size = Vector2(320, 80)
+				ef.custom_minimum_size = Vector2(320, 80 + EnemyFrame.TOP)
 			ef.clicked.connect(_on_enemy_clicked)
 			enemy_frames[e.uid] = ef
 	# Rebuild the nameplates; with many enemies the dead ones are hidden

@@ -68,6 +68,15 @@ class Unit:
 	var skill_gcd := 0.0
 	## Share of their damage dealt by auto attacks; their abilities' base damage makes up the rest.
 	var white := 1.0
+	## For cast bars: how long the guildmate's current attack takes in all, and the last ability used
+	## (guildmates' and enemies' instant abilities, enemies' finished casts) and when.
+	var attack_total := 2.0
+	var action_name := ""
+	var action_at := -99.0
+
+	## Seconds an enemy's melee swing takes now.
+	func swing_total() -> float:
+		return swing_speed * (0.75 if enraged else 1.0)
 
 	func mod(key: String) -> float:
 		return mods.get(key, 0.0)
@@ -222,6 +231,7 @@ func setup(priest_spec: Dictionary, party_specs: Array, enemy_specs: Array, ctx:
 			m.skills.append(sk)
 		m.white = 1.0 / (1.0 + SpecTalents.damage_share(s.get("abilities", [])))
 		m.attack_timer = rng.randf_range(0.2, 1.5)
+		m.attack_total = 2.0
 		for ut in m.utils:
 			utils_present[ut] = true
 		# Party auras and enemy debuffs don't stack: the strongest one counts.
@@ -1118,7 +1128,8 @@ func _tick_party(dt: float) -> void:
 		if m.attack_timer <= 0.0:
 			# Haste makes hits come sooner; each hit still carries a full interval's worth of damage.
 			var interval := rng.randf_range(1.6, 2.4)
-			m.attack_timer += interval / maxf(0.5, 1.0 + (m.mod("haste") + _aura_sum(m, "haste")) / 100.0)
+			m.attack_total = interval / maxf(0.5, 1.0 + (m.mod("haste") + _aura_sum(m, "haste")) / 100.0)
+			m.attack_timer += m.attack_total
 			var e := _attack_target(m, targets)
 			if e != null:
 				var dmg: float = m.dps * m.white * u * interval * _mult(m, "dps_mult") * rng.randf_range(0.85, 1.15)
@@ -1215,6 +1226,7 @@ func _tick_skills(m: Unit, targets: Array, dt: float) -> void:
 			continue
 		if _use_skill(m, sk, targets):
 			sk["ready"] = time + sk["cd"]
+			_acted(m, sk["name"])
 			if not reactive:
 				m.skill_gcd = SKILL_GCD
 				return
@@ -1415,6 +1427,7 @@ func _break_free(m: Unit) -> bool:
 	if sk.is_empty():
 		return false
 	sk["ready"] = time + sk["cd"]
+	_acted(m, sk["name"])
 	m.auras = m.auras.filter(func(a): return not a.get("cc", false))
 	floating.emit(m, sk["name"], "info")
 	_announce(m, sk)
@@ -1459,7 +1472,7 @@ func _tick_enemies(dt: float) -> void:
 		# Melee swings
 		e.swing_timer -= dt
 		if e.swing_timer <= 0.0:
-			e.swing_timer += e.swing_speed * (0.75 if e.enraged else 1.0)
+			e.swing_timer += e.swing_total()
 			damage(e.target, e.swing * rng.randf_range(0.85, 1.15), e)
 		# Abilities
 		for ab in e.abilities:
@@ -1489,6 +1502,7 @@ func _try_interrupt(e: Unit, ab: Dictionary) -> bool:
 			if sk.is_empty():
 				continue
 			sk["ready"] = time + sk["cd"]
+			_acted(m, sk["name"])
 			if sk.has("coef"):
 				_skill_hit(m, sk, e, alive_enemies().size())
 			floating.emit(e, "Interrupted", "info")
@@ -1547,9 +1561,16 @@ func _ability_target(e: Unit, ab: Dictionary) -> Unit:
 	return e.target
 
 
+## Notes an ability just used, for the cast bar above the unit.
+func _acted(unit: Unit, ability_name: String) -> void:
+	unit.action_name = ability_name
+	unit.action_at = time
+
+
 func _use_ability(e: Unit, ab: Dictionary, tgt) -> void:
 	if not e.alive:
 		return
+	_acted(e, ab["name"])
 	var amt: float = ab["amount"] * rng.randf_range(0.9, 1.1)
 	var nm: String = ab["name"]
 	match ab["kind"]:

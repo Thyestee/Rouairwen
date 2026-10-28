@@ -10,9 +10,9 @@ Open `rouairwen/` in Godot 4.7 and run it, or from the command line:
 godot --path rouairwen
 ```
 
-**Orgrimmar** is the hub: quest board, dungeons, raids, recruitment, supplies (the Drag), guild hall upgrades, the guild roster and bank, and your talents.
+**Orgrimmar** is the hub, and its menu is a map of the city: the Quest Board in the Valley of Strength, Supplies on the Drag, Dungeons under the Cleft of Shadow (Ragefire Chasm), Recruitment and the Hall of Legends (prestige) in the Valley of Honor, Talents & Spells in the Valley of Spirits, Raids at Grommash Hold and Guild Missions at its War Table in the Valley of Wisdom, and <Lumens>' own Guild Hall. Click a place to go there: the background changes to that place. The Character Sheet and Guild Roster (at the guild hall) sit under the map. The guild's banner, its logo, hangs at the top of the screen.
 
-**Combat**: your guildmates fight on their own; you keep them alive. Hover a party frame and press a spell key to cast on it, or click a frame to target it and click a spell. By default the keys follow the number row, then the Q/E/R/T positions (A/Z/E/R on AZERTY); `F` drinks a mana potion, `Space` pauses, `Esc` cancels a cast. Click an enemy to focus the party's attacks on it.
+**Combat**: your guildmates fight on their own; you keep them alive. Hover a party frame and press a spell key to cast on it, or click a frame to target it and click a spell. By default the keys follow the number row, then the Q/E/R/T positions (A/Z/E/R on AZERTY); `F` drinks a mana potion, `Space` pauses, `Esc` cancels a cast. Click an enemy to focus the party's attacks on it. A cast bar sits on top of every party frame and enemy nameplate: the spell being cast, the ability just used, or the next attack filling up (a caster's Frostbolt or Shadow Bolt, a hunter's Auto Shot, a melee swing).
 
 **Action bar and keys**: in the **Spellbook** (Talents & Spells), drag a spell or use its arrows to move it to another action bar slot. **Key bindings** (in the Spellbook and in Options) rebinds every slot, the mana potion and pause, Shift/Ctrl/Alt combinations included; keys are saved by physical position, so they stay put on any keyboard layout.
 

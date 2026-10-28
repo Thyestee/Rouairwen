@@ -1,6 +1,7 @@
 class_name UnitFrame
 extends Control
-## A raid-style party frame: health, shields, incoming heal, buffs and debuffs. Click to target.
+## A raid-style party frame: health, shields, incoming heal, buffs and debuffs, with a cast bar on
+## top (CastBar). Click to target.
 
 signal clicked(frame)
 signal hover_changed(frame, inside: bool)
@@ -15,6 +16,8 @@ const BUFF_LETTERS := {"renew": "R", "pws": "S", "pom": "M", "grace": "G", "insp
 	"pain_suppression": "Ps", "lightwell_renew": "L", "shield_wall": "W", "evasion": "E", "barkskin": "B"}
 
 const AURA := 18.0
+## The cast bar strip above the frame itself.
+const TOP := CastBar.H + 3.0
 
 var unit
 var engine: CombatEngine
@@ -22,10 +25,12 @@ var selected := false
 var hovered := false
 var _flash := 0.0
 var _aura_rects: Array = []
+## The frame below the cast bar strip; it is drawn from (0, TOP).
+var _body := Vector2(196, 66)
 
 
 func _init() -> void:
-	custom_minimum_size = Vector2(196, 66)
+	custom_minimum_size = Vector2(196, 66 + TOP)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	mouse_entered.connect(_set_hover.bind(true))
@@ -55,11 +60,14 @@ func flash() -> void:
 func _draw() -> void:
 	if unit == null:
 		return
-	var r := Rect2(Vector2.ZERO, size)
+	CastBar.draw(self, Rect2(2, 0, size.x - 4, CastBar.H), unit, engine)
+	_body = Vector2(size.x, size.y - TOP)
+	draw_set_transform(Vector2(0, TOP))
+	var r := Rect2(Vector2.ZERO, _body)
 	var font := Style.bold_font()
 	var cls_col := ClassData.color(unit.class_id)
 	draw_rect(r, Color(0.04, 0.03, 0.03, 0.92))
-	var bar := Rect2(3, 3, size.x - 6, size.y - 24)
+	var bar := Rect2(3, 3, _body.x - 6, _body.y - 24)
 	draw_rect(bar, Color(0.12, 0.08, 0.08))
 	if unit.alive:
 		var f: float = unit.frac()
@@ -131,9 +139,9 @@ func _draw_auras(font: Font) -> void:
 		var ar: Rect2
 		if is_debuff:
 			dx -= AURA + 2
-			ar = Rect2(dx, size.y - AURA - 2, AURA, AURA)
+			ar = Rect2(dx, _body.y - AURA - 2, AURA, AURA)
 		else:
-			ar = Rect2(bx, size.y - AURA - 2, AURA, AURA)
+			ar = Rect2(bx, _body.y - AURA - 2, AURA, AURA)
 			bx += AURA + 2
 		_aura_rects.append([ar, au])
 		var col := aura_color(au)
@@ -176,7 +184,7 @@ static func aura_color(au: Dictionary) -> Color:
 
 func _get_tooltip(at_position: Vector2) -> String:
 	for pair in _aura_rects:
-		if pair[0].grow(1.0).has_point(at_position):
+		if pair[0].grow(1.0).has_point(at_position - Vector2(0, TOP)):
 			return UnitFrame.aura_tooltip(pair[1])
 	return ""
 
@@ -278,7 +286,7 @@ func _role_glyph(c: Vector2, role: String, col: Color) -> void:
 ## Floating combat text: your heals rise above the frame, other events float inside it.
 func pop(text: String, kind: String) -> void:
 	var above := kind in ["heal", "crit_heal", "hot"]
-	var start := Vector2(size.x * 0.5, -6.0 if above else size.y * 0.45)
+	var start := Vector2(size.x * 0.5, -6.0 if above else TOP + _body.y * 0.45)
 	UnitFrame.float_text(self, text, kind, start)
 
 

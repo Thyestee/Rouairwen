@@ -47,7 +47,21 @@ func run() -> void:
 	for p in ["quests", "guild", "character", "dungeons", "raids", "prestige", "recruit", "shop", "missions", "hall", "talents"]:
 		main.screen.open_page(p)
 		await _frames(3)
+		if shots:
+			# Let the backdrop finish fading in to the new place
+			await get_tree().create_timer(0.5).timeout
 		await _shot("02_hub_" + p)
+	_check(OrgrimmarMap.SCENES.values().all(func(s): return s in Backdrop.SCENE_NAMES), "every place on the map has a backdrop")
+	# The map: clicking a place opens its page, and the backdrop moves there
+	main.screen.open_page("quests")
+	await _frames(2)
+	var hub: HubScreen = main.screen
+	var spot: Array = hub.map._spots.filter(func(s): return s[0] == "shop")
+	if not spot.is_empty():
+		var at: Vector2 = hub.map.get_global_rect().position + spot[0][1]
+		await _push_mouse(at, true, MOUSE_BUTTON_MASK_LEFT)
+		await _push_mouse(at, false, 0)
+	_check(hub.page == "shop" and hub.backdrop.scene == "drag", "clicking Supplies on the map opens it in the Drag (%s, %s)" % [hub.page, hub.backdrop.scene])
 	main.open_options()
 	await _frames(3)
 	await _shot("02_options")
