@@ -1725,7 +1725,7 @@ func _use_ability(e: Unit, ab: Dictionary, tgt) -> void:
 				damage(tgt, amt, e, nm)
 				if ab["kind"] == "mortal" and tgt.alive:
 					tgt.remove("mortal")
-					tgt.auras.append({"id": "mortal", "name": nm, "remaining": 6.0, "heal_taken": 0.5, "harmful": true, "icon": "mortal", "dispel": "", "kind": "mortal"})
+					tgt.auras.append({"id": "mortal", "name": nm, "remaining": 5.0, "heal_taken": 0.5, "harmful": true, "icon": "mortal", "dispel": "", "kind": "mortal"})
 		"cleave", "breath":
 			var hit := [e.target]
 			for i in 2:

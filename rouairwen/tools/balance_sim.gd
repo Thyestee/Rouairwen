@@ -306,14 +306,14 @@ func _economy() -> void:
 			if Balance.HALL_LEVEL_REQ[h] == l:
 				hc = "hall %d: %s" % [h, Balance.money(Balance.hall_cost(h))]
 		if l % 6 == 0 or hc != "" or l == 1:
-			print(" %2d   | %10s  %8.0f  %8.1f  %10s  %s" % [l, Balance.money(Balance.income(l)), fights, fights * 65.0 / 3600.0, Balance.money(int(gold)), hc])
+			print(" %2d   | %10s  %8.0f  %8.1f  %10s  %s" % [l, Balance.money(Balance.income(l)), fights, fights * 50.0 / 3600.0, Balance.money(int(gold)), hc])
 
 
 ## How long the prestige ladder takes. A level-60 guild of nine grade-A guildmates (the recruitment
 ## cap) farms the best raid its grades allow (as in the raid rows above), and trains its lowest
 ## guildmate whenever its prestige allows. Gear is assumed to keep up with the grades.
 func _prestige() -> void:
-	const SEC_PER_KILL := 190.0  # ~2 min fights, the time between them, and the odd wipe
+	const SEC_PER_KILL := 160.0  # ~70 sec fights, the time between them, and the wipes
 	const PLAY_SHARE := 0.85  # the rest of the time goes to dungeons, missions and Orgrimmar
 	var need := {"zg": Tiers.A, "mc": Tiers.A, "ony": Tiers.A, "bwl": 13, "aq40": 15, "naxx": 17}
 	var tiers := []

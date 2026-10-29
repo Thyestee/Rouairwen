@@ -5,30 +5,36 @@ class_name Encounters
 ## a target time; enemy damage scales with the square root of the difficulty, matching how
 ## guildmate health scales with their power.
 
-const FIGHT_TIME := {"pack": 48.0, "elite": 62.0, "boss": 80.0, "raid_boss": 100.0}
+## Seconds a party at par takes to kill each kind of fight. Fights are short and intense: enemies
+## have little health but hit hard (see pressure), so the healer has no time to settle in.
+const FIGHT_TIME := {"pack": 34.0, "elite": 44.0, "boss": 56.0, "raid_boss": 70.0}
 const INCOMING_MULT := {"pack": 1.15, "elite": 1.05, "boss": 1.0, "raid_boss": 0.93}
+## Enemy damage over the base, from level 1 to level 40 and up (see pressure). Set with tools/balance_sim.gd.
+const PRESSURE_LOW := 1.1
+const PRESSURE_HIGH := 1.4
 
 ## Cooldown, cast time and whether the ability has a damage budget.
 const KINDS := {
-	"bolt": {"cd": 7.0, "cast": 2.0, "dmg": true},
-	"cleave": {"cd": 8.0, "cast": 0.0, "dmg": true},
-	"breath": {"cd": 9.0, "cast": 0.0, "dmg": true},
-	"aoe": {"cd": 13.0, "cast": 1.5, "dmg": true},
-	"charge": {"cd": 10.0, "cast": 0.0, "dmg": true},
-	"bleed": {"cd": 12.0, "cast": 0.0, "dmg": true},
-	"poison": {"cd": 13.0, "cast": 0.0, "dmg": true},
-	"disease": {"cd": 14.0, "cast": 0.0, "dmg": true},
-	"curse": {"cd": 15.0, "cast": 1.0, "dmg": true},
-	"magic_dot": {"cd": 13.0, "cast": 1.0, "dmg": true},
-	"mortal": {"cd": 11.0, "cast": 0.0, "dmg": true},
-	"bomb": {"cd": 24.0, "cast": 0.0, "dmg": true},
-	"fear": {"cd": 24.0, "cast": 1.5, "dmg": false},
-	"silence": {"cd": 19.0, "cast": 0.0, "dmg": false},
-	"mana_burn": {"cd": 17.0, "cast": 1.5, "dmg": false},
+	"bolt": {"cd": 5.5, "cast": 2.0, "dmg": true},
+	"cleave": {"cd": 6.5, "cast": 0.0, "dmg": true},
+	"breath": {"cd": 7.0, "cast": 0.0, "dmg": true},
+	"aoe": {"cd": 10.0, "cast": 1.5, "dmg": true},
+	"charge": {"cd": 8.0, "cast": 0.0, "dmg": true},
+	"bleed": {"cd": 9.5, "cast": 0.0, "dmg": true},
+	"poison": {"cd": 10.0, "cast": 0.0, "dmg": true},
+	"disease": {"cd": 11.0, "cast": 0.0, "dmg": true},
+	"curse": {"cd": 12.0, "cast": 1.0, "dmg": true},
+	"magic_dot": {"cd": 10.0, "cast": 1.0, "dmg": true},
+	"mortal": {"cd": 9.0, "cast": 0.0, "dmg": true},
+	"bomb": {"cd": 19.0, "cast": 0.0, "dmg": true},
+	"fear": {"cd": 20.0, "cast": 1.5, "dmg": false},
+	"silence": {"cd": 15.0, "cast": 0.0, "dmg": false},
+	"mana_burn": {"cd": 14.0, "cast": 1.5, "dmg": false},
 	"heal": {"cd": 16.0, "cast": 2.5, "dmg": false},
-	"hex": {"cd": 18.0, "cast": 1.5, "dmg": false},
-	"summon": {"cd": 30.0, "cast": 1.0, "dmg": false},
+	"hex": {"cd": 15.0, "cast": 1.5, "dmg": false},
+	"summon": {"cd": 24.0, "cast": 1.0, "dmg": false},
 }
+## Enemy damage over time ticks DOT_TICKS times, every DOT_PERIOD sec (10 sec, about its cooldown).
 const DOT_TICKS := 4
 ## How much enemies grow with expected guildmate talents (see talent_hp_scale).
 const TALENT_HP := 0.65
@@ -39,7 +45,7 @@ const TALENT_DAMAGE_PER_MEMBER := 0.02
 ## its bot, with a middle-of-the-road rune in each slot (Mending, Warding Light, Fortitude), fares about
 ## like a priest without runes did before them, so stronger combinations come out ahead.
 const RUNE_DAMAGE := {"spell": 0.15, "personal": 0.06, "group": 0.02}
-const DOT_PERIOD := 3.0
+const DOT_PERIOD := 2.5
 
 
 ## Share of their talent points guildmates are expected to have at a level (0 below 10, 1 at 45+).
@@ -55,6 +61,12 @@ static func talent_hp_scale(level: int, party_size: int) -> float:
 
 static func talent_damage_scale(level: int, party_size: int) -> float:
 	return 1.0 + talent_frac(level) * (TALENT_DAMAGE + TALENT_DAMAGE_PER_MEMBER * party_size)
+
+
+## Fights are short, so enemies hit hard: a little at first, while Thyeste has few spells to answer
+## with, and more as he learns them, up to PRESSURE_HIGH at level 40.
+static func pressure(level: int) -> float:
+	return lerpf(PRESSURE_LOW, PRESSURE_HIGH, clampf((level - 1) / 39.0, 0.0, 1.0))
 
 
 ## Enemies also hit harder as Thyeste's rune slots open (spell at 20, personal at 30, group at 40),
@@ -76,8 +88,8 @@ static func build(fight: Dictionary, level: int, diff: float, party_size: int, r
 	var t: float = FIGHT_TIME[type] * (1.2 if fight.get("final", false) and type == "raid_boss" else 1.0)
 	var dps_ref := (n - 1) * 14.0 * diff
 	var total_hp := dps_ref * t * u * (0.65 + 0.35 * r) * talent_hp_scale(level, n)
-	var incoming: float = (21.0 + 4.6 * n) * sqrt(diff) * u * r * INCOMING_MULT[type] * talent_damage_scale(level, n) \
-		* rune_damage_scale(level)
+	var incoming: float = (21.0 + 4.6 * n) * pressure(level) * sqrt(diff) * u * r * INCOMING_MULT[type] \
+		* talent_damage_scale(level, n) * rune_damage_scale(level)
 
 	var defs := []  # [name, abilities, weight, is_main, enrage]
 	if fight.has("boss"):
