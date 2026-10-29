@@ -29,6 +29,7 @@ func run() -> void:
 	Game.data["gold"] -= Settings.BOOST
 	_check_rewards()
 	_check_grades()
+	_check_missions_and_ladder()
 	Game.data["priest"]["xp"] = 0
 	_check_coefficients()
 	_check(Game.members().all(func(m): return m["traits"].size() == 2 and m["affixes"].is_empty()), "founders have 2 traits and no affixes")
@@ -145,6 +146,8 @@ func run() -> void:
 	ms["active"][0]["end"] = Missions.now() - 1.0
 	var res := Game.collect_mission(0)
 	_check(res.has("success") and ms["active"].is_empty() and not Game.is_busy(away), "a finished mission can be collected (%s)" % ("success" if res.get("success") else "failed"))
+	if res.get("success", false):
+		_check(res["gold"] > 0 or not res["items"].is_empty(), "a successful mission brings back spoils")
 	for t in ["spiritual_healing", "spiritual_healing", "spiritual_healing", "spiritual_healing", "spiritual_healing",
 			"holy_specialization", "holy_specialization", "holy_specialization", "holy_specialization", "holy_specialization", "prayer_of_mending"]:
 		Game.learn(t)
@@ -396,6 +399,26 @@ func _check_lightwell(e: CombatEngine) -> void:
 	for i in 2:
 		e._tick_lightwell(0.5)
 	_check(standing and e.lightwell.is_empty(), "the Lightwell fades after 20 sec, its charges unused")
+
+
+## Missions show their experience (30-50% of a level) and keep their spoils, gold, gear or both, a
+## surprise; the prestige ladder holds 100 rival guilds with the same top.
+func _check_missions_and_ladder() -> void:
+	var need := Balance.xp_to_next(Game.level())
+	var shown_ok := true
+	for mi in Game.missions()["board"]:
+		var rw: Dictionary = mi["rewards"]
+		if rw["xp"] < int(need * 0.3) or rw["xp"] > int(need * 0.5) or rw.has("gold_min") or rw.has("items"):
+			shown_ok = false
+	_check(shown_ok, "missions show 30-50% of a level in experience, and nothing else")
+	var kinds := {"gold": 0, "gear": 0, "both": 0}
+	var mission: Dictionary = Game.missions()["board"][0]
+	for i in 300:
+		var sp := Missions.spoils(mission, Game.rng)
+		kinds["both" if sp.has("gold") and sp.has("items") else ("gold" if sp.has("gold") else "gear")] += 1
+	_check(kinds.values().all(func(n): return n > 60), "mission spoils are gold, gear or both (%s)" % str(kinds))
+	_check(Prestige.guild_count() == 101 and Prestige.rank(0) == 101 and Prestige.rival_score(0) == Prestige.TOP,
+		"the ladder ranks 100 rival guilds under the same #1")
 
 
 ## Rewards are 4 times what they were: experience, gold, and gear pieces (the boost multiplies them again).

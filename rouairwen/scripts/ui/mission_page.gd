@@ -60,18 +60,14 @@ func _card() -> PanelContainer:
 	return Style.panel(Color(0.14, 0.06, 0.04, 0.92), Color("6a2414"), 2, 12)
 
 
+## The mission's experience, set on the board, and its spoils, which stay a surprise until it's done.
 func _rewards_text(rw: Dictionary) -> String:
 	var parts := []
-	if rw.has("gold_min"):
-		parts.append("%s – %s" % [Balance.money_bb(rw["gold_min"] * Settings.boost_rate()), Balance.money_bb(rw["gold_max"] * Settings.boost_rate())])
-	if rw.has("xp_min"):
-		parts.append("%s – %s XP" % [Balance.big(rw["xp_min"] * Settings.boost_rate()), Balance.big(rw["xp_max"] * Settings.boost_rate())])
-	if rw.has("items"):
-		var odds := "[color=#0070dd]%d%% rare[/color]" % int(round(rw["rare_chance"] * 100.0))
-		if rw.get("epic_chance", 0.0) > 0.0:
-			odds += ", [color=#a335ee]%d%% epic[/color]" % int(round(rw["epic_chance"] * 100.0))
-		var n: int = rw["items"] * Settings.boost_rate()
-		parts.append("%d gear piece%s, item level %d–%d (%s)" % [n, "" if n == 1 else "s", rw["ilvl_min"], rw["ilvl_max"], odds])
+	var xp: int = rw.get("xp", rw.get("xp_max", 0)) * Settings.boost_rate()
+	if xp > 0:
+		var share := (" [color=#8a7262](%d%% of a level)[/color]" % (rw["xp_share"] * Settings.boost_rate())) if rw.has("xp_share") else ""
+		parts.append("%s XP%s" % [Balance.big(xp), share])
+	parts.append("[color=#ffd86b]spoils: gold, gear or both[/color] [color=#8a7262](revealed on their return)[/color]")
 	return "[color=#c09f86]Rewards:[/color] " + " · ".join(parts)
 
 
@@ -232,6 +228,8 @@ func _collect(index: int) -> void:
 			gains.append(Balance.money_bb(res["gold"]))
 		if not gains.is_empty():
 			v.add_child(Style.rich("[color=#c09f86]Received:[/color] " + ", ".join(gains), 15))
+		var kind := "gold and gear!" if res["gold"] > 0 and not res["items"].is_empty() else ("gold" if res["gold"] > 0 else "gear")
+		v.add_child(Style.rich("[color=#c09f86]The spoils:[/color] [color=#ffd86b]%s[/color]" % kind, 15))
 		if res["levels"] > 0:
 			v.add_child(Style.label("You reached level %d!" % Game.level(), 20, Style.C["gold"], true))
 		# The pieces in a list that scrolls when there are many

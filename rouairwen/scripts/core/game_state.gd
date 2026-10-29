@@ -107,6 +107,9 @@ func _migrate() -> void:
 			af[1] = _current_effects(af, SpecTalents.AFFIXES_GOOD + SpecTalents.AFFIXES_BAD)
 		# Guildmates already at B or better get their grade perk (grades past A from before the cap stay).
 		_grade_perk(m)
+	# Missions posted before their rewards changed (set experience, surprise spoils) are posted again.
+	if data.has("missions") and data["missions"]["board"].any(func(mi): return not mi["rewards"].has("xp")):
+		data["missions"]["board"].clear()
 	# Prestige arrived after raids: past clears count, so veteran guilds start on the ladder.
 	if not data.has("prestige"):
 		data["prestige"] = {"points": 0, "total": 0}
@@ -643,20 +646,22 @@ func collect_mission(index: int) -> Dictionary:
 	var success: bool = rng.randf() < a["chance"]
 	var res := {"success": success, "xp": 0, "gold": 0, "items": [], "levels": 0, "title": mission["title"]}
 	if success:
+		# The spoils are rolled now: gold, gear or both
+		var sp := Missions.spoils(mission, rng)
 		var items := []
-		for i in rw.get("items", 0) * Settings.boost_rate():
+		for i in sp.get("items", 0) * Settings.boost_rate():
 			var q := "uncommon"
 			var r := rng.randf()
-			if r < rw.get("epic_chance", 0.0):
+			if r < sp["epic_chance"]:
 				q = "epic"
-			elif r < rw.get("epic_chance", 0.0) + rw["rare_chance"]:
+			elif r < sp["epic_chance"] + sp["rare_chance"]:
 				q = "rare"
 			var team := mission_team(a["members"])
 			var profile: String = member_stat(team[rng.randi() % team.size()]) if not team.is_empty() else ""
-			items.append(wearable_item(rng.randi_range(rw["ilvl_min"], rw["ilvl_max"]), q, profile))
-		var xp := rng.randi_range(rw["xp_min"], rw["xp_max"]) if rw.has("xp_min") else 0
-		var g := rng.randi_range(rw["gold_min"], rw["gold_max"]) if rw.has("gold_min") else 0
-		var granted := _grant(xp, g, items)
+			items.append(wearable_item(rng.randi_range(sp["ilvl_min"], sp["ilvl_max"]), q, profile))
+		# Missions from before the rework promised an experience range
+		var xp: int = rw.get("xp", rng.randi_range(rw["xp_min"], rw["xp_max"]) if rw.has("xp_min") else 0)
+		var granted := _grant(xp, sp.get("gold", 0), items)
 		res.merge(granted, true)
 		data["stats"]["missions"] = data["stats"].get("missions", 0) + 1
 		add_log("Mission complete: %s." % mission["title"])

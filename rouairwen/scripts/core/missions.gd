@@ -1,6 +1,8 @@
 class_name Missions
 ## Guild missions (garrison style): guildmates leave for 5 to 20 minutes of real time and come back
-## with gold, experience or gear, unless the mission fails.
+## with experience, and with spoils, unless the mission fails. The experience is set and shown on the
+## board (30-50% of what the guild's level needs); the spoils, gold, gear or both, are a surprise
+## rolled when they come back (see spoils()).
 ##
 ## Success comes from team power against the mission's requirement, plus counters: each threat a
 ## guildmate counters adds its share of +50%. At 150% the mission always succeeds, so a team that
@@ -50,7 +52,8 @@ const TEMPLATES := [
 	["Gather Reagents", "Collect rare herbs and reagents in %s for the guild's alchemist."],
 ]
 
-const REWARD_TYPES := ["gold", "xp", "gear"]
+## The experience a mission gives, as a share of what the guild's level needs (%).
+const XP_SHARE := [30, 50]
 
 
 ## A mission near the player's level. `talent_factor` keeps the requirement on the recommended-power scale.
@@ -68,33 +71,34 @@ static func make(level: int, rng: RandomNumberGenerator, talent_factor: float) -
 	keys.shuffle()
 	var threats := keys.slice(0, slots)
 	var mdiff := snappedf(rng.randf_range(0.9, 1.5), 0.05)
-	var types := REWARD_TYPES.duplicate()
-	types.shuffle()
-	types = types.slice(0, 1 if rng.randf() < 0.5 else 2)
-	if not ("gold" in types) and rng.randf() < 0.5:
-		types.append("gold")
-	var scale := minutes * mdiff
-	var rw := {}
-	if "gold" in types:
-		var g := Balance.income(level) * scale * 0.9 * Balance.LOOT_RATE
-		rw["gold_min"] = int(g * 0.7)
-		rw["gold_max"] = int(g * 1.3)
-	if "xp" in types:
-		var x := Balance.xp_per_fight(level) * scale * 0.25
-		rw["xp_min"] = int(x * 0.8)
-		rw["xp_max"] = int(x * 1.2)
-	if "gear" in types:
-		rw["items"] = (1 if minutes < 15 else 2) * Balance.LOOT_RATE
-		rw["ilvl_min"] = level
-		rw["ilvl_max"] = mini(level + 2, Balance.MAX_LEVEL + 2)
-		rw["rare_chance"] = clampf(0.1 + 0.3 * (mdiff - 0.9) + 0.012 * minutes, 0.0, 0.7)
-		rw["epic_chance"] = 0.03 + 0.05 * (mdiff - 0.9) if level >= 50 else 0.0
+	var share := rng.randi_range(XP_SHARE[0], XP_SHARE[1])
+	var rw := {"xp": int(Balance.xp_to_next(level) * share / 100.0), "xp_share": share}
 	var title: String = tpl[0] % place if tpl[0].contains("%s") else tpl[0]
 	return {
 		"title": title, "text": tpl[1] % place, "place": "%s, %s" % [place, z["name"]], "level": level,
 		"minutes": minutes, "slots": slots, "threats": threats,
 		"required": int(round(100.0 * mdiff * talent_factor)), "diff": mdiff, "rewards": rw,
 	}
+
+
+## A successful mission's spoils, rolled when the guildmates come back: gold, gear or both (one chance
+## in three each), more for longer and harder missions. {gold, items, ilvl_min, ilvl_max, rare_chance,
+## epic_chance}, the gear keys only with gear.
+static func spoils(mission: Dictionary, rng: RandomNumberGenerator) -> Dictionary:
+	var level: int = mission["level"]
+	var minutes: int = mission["minutes"]
+	var mdiff: float = mission["diff"]
+	var kind := rng.randi() % 3
+	var out := {}
+	if kind != 1:
+		out["gold"] = int(Balance.income(level) * minutes * mdiff * 0.9 * Balance.LOOT_RATE * rng.randf_range(0.7, 1.3))
+	if kind != 0:
+		out["items"] = (1 if minutes < 15 else 2) * Balance.LOOT_RATE
+		out["ilvl_min"] = level
+		out["ilvl_max"] = mini(level + 2, Balance.MAX_LEVEL + 2)
+		out["rare_chance"] = clampf(0.1 + 0.3 * (mdiff - 0.9) + 0.012 * minutes, 0.0, 0.7)
+		out["epic_chance"] = 0.03 + 0.05 * (mdiff - 0.9) if level >= 50 else 0.0
+	return out
 
 
 static func counters(threat_id: String, m: Dictionary, mods: Dictionary) -> bool:

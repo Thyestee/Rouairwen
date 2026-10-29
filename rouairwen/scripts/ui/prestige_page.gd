@@ -76,9 +76,12 @@ func _ladder() -> Control:
 	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	p.add_child(sc)
 	var ladder := Prestige.ladder(Game.prestige_total())
+	var mine: Control = null
 	for i in ladder.size():
 		var e: Dictionary = ladder[i]
 		var row := PanelContainer.new()
+		if e["you"]:
+			mine = row
 		var bg := Color(0.3, 0.2, 0.05, 0.6) if e["you"] else (Color(0.12, 0.05, 0.03, 0.7) if i % 2 == 0 else Color(0, 0, 0, 0))
 		row.add_theme_stylebox_override("panel", Style.box(bg, Style.C["gold"] if e["you"] else Color.TRANSPARENT, 1 if e["you"] else 0, 4, 5))
 		var h := Style.hbox(10)
@@ -92,7 +95,16 @@ func _ladder() -> Control:
 		h.add_child(nl)
 		h.add_child(Style.label("%d" % e["score"], 16, Style.C["prestige"]))
 		v.add_child(row)
+	# A hundred guilds: open the list on <Lumens>, a few rivals above it in view
+	if mine != null:
+		_show_row.call_deferred(sc, mine)
 	return p
+
+
+func _show_row(sc: ScrollContainer, row: Control) -> void:
+	await get_tree().process_frame
+	if is_instance_valid(row) and is_instance_valid(sc):
+		sc.scroll_vertical = int(maxf(0.0, row.position.y - sc.size.y * 0.35))
 
 
 func _card() -> PanelContainer:
