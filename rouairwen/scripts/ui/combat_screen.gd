@@ -516,20 +516,33 @@ func _stats_text() -> String:
 		Balance.big(s["healing"]), Balance.big(s["absorbed"]), int(oh), s["dispels"], int(eng.time) / 60, int(eng.time) % 60]
 
 
+## The loot, guaranteed piece and upgrades first, in a list that scrolls when there is a lot of it.
 func _loot_list(v: VBoxContainer, items: Array) -> void:
+	var rows := []
 	for it in items:
 		var bw := Game.best_wearer(it)
 		var note := ("[color=#6ee06e]Upgrade for %s[/color]" % bw[0]["name"]) if bw[0] != null else "[color=#8a7262]Not an upgrade for anyone.[/color]"
+		var rank := 1 if bw[0] != null else 2
 		if it.get("guaranteed", false):
 			var role: String = it["profile"]
 			note = "[color=#%s]Guaranteed %s piece[/color] · %s" % [Activities.ROLE_COLORS.get(role, "ffffff"), Activities.ROLE_PIECES.get(role, role), note]
+			rank = 0
+		rows.append([rank, it, note])
+	rows.sort_custom(func(a, b): return a[0] < b[0])
+	var list := Style.vbox(4)
+	for r in rows:
 		var row := Style.hbox(8)
-		var ib := ItemButton.new().setup(it, "", note, true)
+		var ib := ItemButton.new().setup(r[1], "", r[2], true)
 		ib.custom_minimum_size = Vector2(320, 26)
 		row.add_child(ib)
-		row.add_child(Style.rich(note, 13))
+		row.add_child(Style.rich(r[2], 13))
 		row.get_child(1).size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		v.add_child(row)
+		list.add_child(row)
+	var sc := Style.scroll(list)
+	sc.custom_minimum_size.y = minf(rows.size() * 30.0, 300.0)
+	v.add_child(sc)
+	if rows.size() > 10:
+		v.add_child(Style.label("%d pieces in all; scroll for the rest." % rows.size(), 12, Style.C["muted"]))
 
 
 func _victory_panel(res: Dictionary) -> void:

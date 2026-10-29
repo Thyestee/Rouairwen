@@ -237,7 +237,7 @@ static func clear(node: Node) -> void:
 static func tier_badge(tier: int, size := 18) -> Label:
 	var l := label(Tiers.name_of(tier), size, Tiers.color_of(tier), true)
 	l.add_theme_constant_override("outline_size", 5)
-	l.tooltip_text = "Grade %s: %.0f%% damage" % [Tiers.name_of(tier), Tiers.power(tier) * 100.0]
+	l.tooltip_text = "Grade %s: how much they grow. Each grade adds the stats their spec fights with, mostly as gains every level." % Tiers.name_of(tier)
 	l.mouse_filter = Control.MOUSE_FILTER_PASS
 	return l
 

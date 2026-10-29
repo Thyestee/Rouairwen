@@ -307,10 +307,10 @@ func _group(key: String) -> float:
 const APPLIED_MODS := ["hp", "dps", "mit", "aggro"]
 
 
-## A guildmate's combat numbers from their spec, grade, stats (Stats.compute) and effects.
+## A guildmate's combat numbers from their spec, stats (Stats.compute, grade included) and effects.
 ## Damage follows Attack Power or Spell Damage, health follows Stamina, damage taken follows Armor,
 ## crit and dodge come from Agility/Intellect and Defense.
-static func member_spec(mname: String, spec_id: String, grade: float, stats: Dictionary, mods: Dictionary,
+static func member_spec(mname: String, spec_id: String, stats: Dictionary, mods: Dictionary,
 		abilities: Array, lvl: int, dmg_buff := 0.0, hp_buff := 0.0) -> Dictionary:
 	var sp: Dictionary = ClassData.SPECS[spec_id]
 	var rest := {}
@@ -320,12 +320,12 @@ static func member_spec(mname: String, spec_id: String, grade: float, stats: Dic
 			rest[k] = mods[k]
 	return {
 		"name": mname, "class_id": sp["class"], "spec_id": spec_id, "role": sp["role"],
-		"max_hp": sp["hp"] * Balance.scale(lvl) * sqrt(grade) * stats["health_mult"] * (1.0 + hp_buff) * (1.0 + mods.get("hp", 0.0) / 100.0),
-		"dps": sp["dps"] * grade * stats["offense"] * (1.0 + dmg_buff) * (1.0 + mods.get("dps", 0.0) / 100.0),
+		"max_hp": sp["hp"] * Balance.scale(lvl) * stats["health_mult"] * (1.0 + hp_buff) * (1.0 + mods.get("hp", 0.0) / 100.0),
+		"dps": sp["dps"] * stats["offense"] * (1.0 + dmg_buff) * (1.0 + mods.get("dps", 0.0) / 100.0),
 		"mit": clampf(sp["mit"] * Stats.armor_factor(sp["class"], lvl, stats["armor"]) * (1.0 - mods.get("mit", 0.0) / 100.0), 0.25, 1.3),
 		"aggro": clampf(sp["aggro"] + mods.get("aggro", 0.0) / 100.0, 0.0, 0.98),
 		"crit": stats["crit_chance"], "dodge": stats["dodge"],
-		"utils": sp["util"], "pm": grade * stats["offense"], "mods": rest, "abilities": abilities,
+		"utils": sp["util"], "pm": stats["offense"], "mods": rest, "abilities": abilities,
 	}
 
 

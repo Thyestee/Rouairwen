@@ -163,9 +163,12 @@ static func item_stats(item: Dictionary) -> Dictionary:
 			v = roundf(v)
 		if v > 0.0:
 			out[k] = v
+	var main_key: String = split.keys()[0]
 	if leftover > 0.0:
-		var main_key: String = split.keys()[0]
 		out[main_key] = out.get(main_key, 0.0) + roundf(leftover * PER_POINT[main_key])
+	# The smallest pieces (a level 1 ring) still carry a point of their main stat.
+	if out.values().all(func(x): return x <= 0.0):
+		out[main_key] = 1.0
 	var armor := float(Items.armor_value(item))
 	if armor > 0.0:
 		out["armor"] = armor
@@ -187,15 +190,17 @@ static func gear_stats(gear: Dictionary) -> Dictionary:
 
 # ---------------------------------------------------------------- characters
 
-## Every stat of a character: base + gear, talent percentages applied, then derived values.
+## Every stat of a character: base + grade (Tiers.stats) + gear, talent percentages applied, then
+## derived values, measured against an F-grade character of the level with nothing on.
 ## kind is "physical", "spell", "tank" or "priest" (how the character fights).
-static func compute(class_id: String, kind: String, level: int, gear: Dictionary, mods := {}) -> Dictionary:
-	return compute_stats(class_id, kind, level, gear_stats(gear), mods)
+static func compute(class_id: String, kind: String, level: int, gear: Dictionary, mods := {}, grade := {}) -> Dictionary:
+	return compute_stats(class_id, kind, level, gear_stats(gear), mods, grade)
 
 
 ## Same as compute, from gear stats already summed (the balance simulation's reference gear).
-static func compute_stats(class_id: String, kind: String, level: int, gear: Dictionary, mods := {}) -> Dictionary:
+static func compute_stats(class_id: String, kind: String, level: int, gear: Dictionary, mods := {}, grade := {}) -> Dictionary:
 	var s := base(class_id, level)
+	add_into(s, grade)
 	add_into(s, gear)
 	for k in PRIMARY:
 		s[k] = s.get(k, 0.0) * (1.0 + mods.get(k + "%", 0.0) / 100.0)

@@ -106,7 +106,10 @@ func _detail(m: Dictionary) -> Control:
 	if is_p:
 		v.add_child(Style.rich("[color=#c09f86]Healing:[/color] +%d%%   [color=#c09f86]Mana:[/color] +%d%%   [color=#c09f86]Power:[/color] %d" % [int(gb * 100), int(gb * 60), int(100 * Game.member_power(m))], 13))
 	else:
-		v.add_child(Style.rich("[color=#c09f86]Grade:[/color] ×%.2f   [color=#c09f86]Gear:[/color] +%d%%   [color=#c09f86]Power:[/color] %d" % [Tiers.power(m["tier"]), int(gb * 100), int(100 * Game.member_power(m))], 13))
+		v.add_child(Style.rich("[color=#c09f86]Gear:[/color] +%d%%   [color=#c09f86]Power:[/color] %d" % [int(gb * 100), int(100 * Game.member_power(m))], 13))
+		var gs := Style.rich("[color=#c09f86]Grade:[/color] " + (Tiers.stats_text(Game.grade_stats(m)) if m["tier"] > 0 else "no bonus stats (F)"), 12)
+		gs.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		v.add_child(gs)
 		var tr := Style.rich(MemberText.traits_bb(m), 12)
 		tr.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		v.add_child(tr)

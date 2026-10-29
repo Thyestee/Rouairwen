@@ -1,10 +1,11 @@
 class_name Tiers
-## Guildmate grades from F to SSS+. The grade multiplies a guildmate's damage
-## (and, square-rooted, their health), and the guild hall decides which grades show up, up to A.
+## Guildmate grades from F to SSS+. A grade is how much a guildmate grows: each grade above F adds
+## the stats their spec fights with (see GROWTH), mostly as extra gains every level, so a grade
+## shows more and more as they level. The guild hall decides which grades show up, up to A.
 ##
 ## Training raises a guildmate one grade at a time: gold up to A, gold and prestige past it.
-## Some grades unlock more than damage: B a random perk (crit or damage), A a class spell,
-## S a racial spell (see SpecTalents.CLASS_SPELLS and RACE_SPELLS).
+## Some grades unlock more: B a random perk (crit or damage), A a class spell, S a racial spell
+## (see SpecTalents.CLASS_SPELLS and RACE_SPELLS).
 
 const NAMES := ["F", "F+", "E", "E+", "D", "D+", "C", "C+", "B", "B+", "A", "A+", "S", "S+", "SS", "SS+", "SSS", "SSS+"]
 const COLORS := [
@@ -47,8 +48,82 @@ static func color_of(t: int) -> Color:
 	return COLORS[clampi(t, 0, COLORS.size() - 1)]
 
 
+## What grade t was worth when it multiplied damage: what its stats are tuned to give at level 60.
 static func power(t: int) -> float:
 	return 1.0 + 0.075 * t
+
+
+## The stats each grade above F adds, by how the spec fights, as a share of the class's own gains:
+## "attack" is whatever gives the class Attack Power (Strength, Agility, or both for rogues), "sp" a
+## share of the level's Spell Damage reference, "def" Defense points per level.
+## Agility is for crits here, so classes that already grow it for Attack Power skip it.
+const GROWTH := {
+	"physical": {"attack": 0.4, "sta": 0.35, "agi": 0.1},
+	"spell": {"sp": 0.105, "int": 0.3, "sta": 0.35},
+	"tank": {"sta": 0.42, "attack": 0.3, "def": 0.06},
+}
+## The stats a spec deals damage with ("attack", "sp") grow faster at the top grades, where gear
+## adds the most of them too: grade t counts as damage_steps(t) steps.
+const DAMAGE_STATS := ["attack", "sp"]
+
+
+static func damage_steps(t: int) -> float:
+	return t * (0.955 + 0.00275 * t * t)
+
+
+## How a spec fights, for its growth: "physical", "spell" or "tank".
+static func growth_kind(spec_id: String) -> String:
+	var sp: Dictionary = ClassData.SPECS[spec_id]
+	if sp["role"] == "tank":
+		return "tank"
+	return "spell" if sp["stat"] == "spell" else "physical"
+
+
+## A level's worth of growth, in multiples of the class's level-1 stats: a quarter from the start,
+## then 9% a level, like the stats themselves (Stats.level_factor) without their first point.
+static func gains(level: int) -> float:
+	return 0.25 + 0.09 * (level - 1)
+
+
+## The stats grade t adds to a guildmate of this spec at this level.
+static func stats(spec_id: String, t: int, level: int) -> Dictionary:
+	var out := {}
+	if t <= 0:
+		return out
+	var cls := ClassData.class_of(spec_id)
+	var base: Dictionary = Stats.TEMPLATES.get(cls, Stats.TEMPLATES["warrior"])
+	var apf: Array = Stats.AP_FROM.get(cls, [1, 0])
+	var g := gains(level)
+	var growth: Dictionary = GROWTH[growth_kind(spec_id)]
+	for k in growth:
+		var r: float = growth[k] * (damage_steps(t) if k in DAMAGE_STATS else float(t))
+		match k:
+			"attack":
+				if apf[0] > 0:
+					out["str"] = out.get("str", 0.0) + r * base["str"] * g
+				if apf[1] > 0:
+					out["agi"] = out.get("agi", 0.0) + r * base["agi"] * g
+			"agi":
+				if apf[1] == 0:
+					out["agi"] = out.get("agi", 0.0) + r * base["agi"] * g
+			"sp":
+				out["sp"] = r * Stats.spell_power_ref(level) * g / Stats.level_factor(level)
+			"def":
+				out["def"] = r * level
+			_:
+				out[k] = out.get(k, 0.0) + r * base[k] * g
+	return out
+
+
+## "+412 Strength, +318 Stamina": a grade's stats as text, biggest first.
+static func stats_text(stats: Dictionary) -> String:
+	var keys := stats.keys()
+	keys.sort_custom(func(a, b): return stats[a] > stats[b])
+	var parts := []
+	for k in keys:
+		if stats[k] >= 1.0:
+			parts.append("+%d %s" % [int(round(stats[k])), Stats.NAMES[k]])
+	return ", ".join(parts)
 
 
 static func mean_for_hall(hall: int) -> float:

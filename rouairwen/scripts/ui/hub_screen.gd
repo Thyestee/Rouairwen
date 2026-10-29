@@ -284,8 +284,9 @@ func _quest_card(q: Dictionary) -> Control:
 		flist.append(("[color=#ffb040]%s[/color]" % f["label"]) if f["type"] == "elite" else f["label"])
 	v.add_child(Style.rich("[color=#c09f86]%d fight%s:[/color] %s" % [fights.size(), "" if fights.size() == 1 else "s", ", ".join(flist)], 13))
 	var rw: Dictionary = q["rewards"]
-	v.add_child(Style.rich("[color=#c09f86]Rewards:[/color] %s XP and %s – %s" % [Balance.big(rw["xp"] * Settings.xp_rate()), Balance.money_bb(rw["gold_min"]), Balance.money_bb(rw["gold_max"])], 13))
-	var n_txt := "%d" % rw["items_min"] if rw["items_min"] == rw["items_max"] else "%d–%d" % [rw["items_min"], rw["items_max"]]
+	v.add_child(Style.rich("[color=#c09f86]Rewards:[/color] %s XP and %s – %s" % [Balance.big(rw["xp"] * Settings.boost_rate()), Balance.money_bb(rw["gold_min"] * Settings.boost_rate()), Balance.money_bb(rw["gold_max"] * Settings.boost_rate())], 13))
+	var b := Settings.boost_rate()
+	var n_txt := "%d" % (rw["items_min"] * b) if rw["items_min"] == rw["items_max"] else "%d–%d" % [rw["items_min"] * b, rw["items_max"] * b]
 	var odds := "[color=#0070dd]%d%% rare[/color]" % int(round(rw["rare_chance"] * 100.0))
 	if rw["epic_chance"] > 0.0:
 		odds += ", [color=#a335ee]%d%% epic[/color]" % int(round(rw["epic_chance"] * 100.0))

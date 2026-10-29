@@ -13,8 +13,8 @@ const MODES := ["windowed", "maximized", "fullscreen"]
 const MODE_NAMES := {"windowed": "Windowed", "maximized": "Maximized", "fullscreen": "Fullscreen"}
 const SCALES := [1.0, 0.9, 0.8, 0.7]
 const MIN_WINDOW := Vector2i(960, 540)
-## Experience multiplier while the testing boost is on.
-const XP_BOOST := 10
+## Experience, gold and loot multiplier while the testing boost is on (saved as "xp_boost", its first name).
+const BOOST := 10
 
 ## Action bar slots, then the other bindable actions.
 const SLOTS := 14
@@ -26,7 +26,7 @@ const RESERVED := [KEY_ESCAPE, KEY_F11]
 
 static var mode := "windowed"
 static var ui_scale := 1.0
-static var xp_boost := false
+static var boost := false
 ## Action -> physical keycode with modifier masks (0: unbound).
 static var keys := default_keys()
 
@@ -36,7 +36,7 @@ static func load_settings() -> void:
 	if cf.load(PATH) == OK:
 		mode = cf.get_value("display", "mode", mode)
 		ui_scale = cf.get_value("display", "ui_scale", ui_scale)
-		xp_boost = cf.get_value("testing", "xp_boost", xp_boost)
+		boost = cf.get_value("testing", "xp_boost", boost)
 		for a in keys:
 			keys[a] = int(cf.get_value("keys", a, keys[a]))
 	if not (mode in MODES):
@@ -48,15 +48,15 @@ static func save_settings() -> void:
 	var cf := ConfigFile.new()
 	cf.set_value("display", "mode", mode)
 	cf.set_value("display", "ui_scale", ui_scale)
-	cf.set_value("testing", "xp_boost", xp_boost)
+	cf.set_value("testing", "xp_boost", boost)
 	for a in keys:
 		cf.set_value("keys", a, keys[a])
 	cf.save(PATH)
 
 
-## What every experience gain is multiplied by.
-static func xp_rate() -> int:
-	return XP_BOOST if xp_boost else 1
+## What every experience and gold gain, and every number of gear pieces, is multiplied by.
+static func boost_rate() -> int:
+	return BOOST if boost else 1
 
 
 # ---------------------------------------------------------------- key bindings

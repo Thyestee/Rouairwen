@@ -5,8 +5,11 @@ class_name Balance
 ## so a fight at level 12 plays like a fight at level 48, only with bigger numbers.
 
 const MAX_LEVEL := 60
-## Experience multiplier on every fight and quest (raised by 50%).
-const XP_RATE := 1.5
+## Experience multiplier on every fight and quest (raised by 50%, then 4 times).
+const XP_RATE := 6.0
+## Gold and gear multiplier on every reward: fights, quests and missions pay this many times their
+## gold and drop this many times their gear (guaranteed pieces stay one). Prices don't change.
+const LOOT_RATE := 4
 const GROWTH := 1.06
 
 ## Classic experience needed to go from a level to the next one.

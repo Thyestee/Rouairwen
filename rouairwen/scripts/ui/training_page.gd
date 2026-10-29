@@ -9,11 +9,12 @@ func rebuild() -> void:
 	size_flags_vertical = Control.SIZE_EXPAND_FILL
 	add_theme_constant_override("separation", 10)
 	Style.clear(self)
-	var info := Style.rich(("Each grade raises damage by %s%% of their base, and health a little. [color=#%s]B[/color] grants a random perk (critical strike " + \
-		"or damage), [color=#%s]A[/color] a class spell, [color=#%s]S[/color] a racial spell. Up to A, training costs gold; past A, it also " + \
-		"takes [color=#%s]prestige[/color], earned by killing raid bosses.") % [SpecTalents.number(Tiers.power(1) * 100.0 - 100.0),
-		Tiers.color_of(Tiers.B).to_html(false), Tiers.color_of(Tiers.A).to_html(false), Tiers.color_of(Tiers.S).to_html(false),
-		Style.C["prestige"].to_html(false)], 14)
+	var info := Style.rich(("A grade is how much a guildmate grows. Each one adds the stats their spec fights with, mostly as extra gains " + \
+		"every level: Attack Power stats for fighters, Spell Damage and Intellect for casters, Stamina above all for tanks, and Stamina " + \
+		"for everyone. [color=#%s]B[/color] also grants a random perk (critical strike or damage), [color=#%s]A[/color] a class spell, " + \
+		"[color=#%s]S[/color] a racial spell. Up to A, training costs gold; past A, it also takes [color=#%s]prestige[/color], earned by " + \
+		"killing raid bosses.") % [Tiers.color_of(Tiers.B).to_html(false), Tiers.color_of(Tiers.A).to_html(false),
+		Tiers.color_of(Tiers.S).to_html(false), Style.C["prestige"].to_html(false)], 14)
 	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	add_child(info)
 	add_child(Style.rich("[color=#c09f86]Gold:[/color] %s    [color=#c09f86]Prestige to spend:[/color] [color=#%s]%d[/color]" % [
@@ -44,13 +45,17 @@ func _row(m: Dictionary) -> Control:
 	h.add_child(who)
 	var mid := Style.vbox(3)
 	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var now := Game.grade_stats(m)
 	if Tiers.is_max(t):
-		mid.add_child(Style.rich("[color=#%s]%s[/color]: the highest grade. Damage x%.2f." % [Tiers.color_of(t).to_html(false),
-			Tiers.name_of(t), Tiers.power(t)], 14))
+		mid.add_child(Style.rich("[color=#%s]%s[/color]: the highest grade. %s at level %d." % [Tiers.color_of(t).to_html(false),
+			Tiers.name_of(t), Tiers.stats_text(now), Game.level()], 14))
 	else:
 		var next := t + 1
-		var line := "[color=#%s]%s[/color] → [color=#%s]%s[/color]: damage x%.2f → x%.2f" % [Tiers.color_of(t).to_html(false), Tiers.name_of(t),
-			Tiers.color_of(next).to_html(false), Tiers.name_of(next), Tiers.power(t), Tiers.power(next)]
+		var gain := Game.grade_stats(m, next)
+		for k in now:
+			gain[k] = gain.get(k, 0.0) - now[k]
+		var line := "[color=#%s]%s[/color] → [color=#%s]%s[/color]: %s at level %d" % [Tiers.color_of(t).to_html(false), Tiers.name_of(t),
+			Tiers.color_of(next).to_html(false), Tiers.name_of(next), Tiers.stats_text(gain), Game.level()]
 		if Tiers.unlock_at(next) != "":
 			line += ", and [color=#ffd86b]%s[/color]" % MemberText.unlock_text(m, next)
 		mid.add_child(Style.rich(line, 14))

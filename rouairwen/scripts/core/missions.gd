@@ -76,7 +76,7 @@ static func make(level: int, rng: RandomNumberGenerator, talent_factor: float) -
 	var scale := minutes * mdiff
 	var rw := {}
 	if "gold" in types:
-		var g := Balance.income(level) * scale * 0.9
+		var g := Balance.income(level) * scale * 0.9 * Balance.LOOT_RATE
 		rw["gold_min"] = int(g * 0.7)
 		rw["gold_max"] = int(g * 1.3)
 	if "xp" in types:
@@ -84,7 +84,7 @@ static func make(level: int, rng: RandomNumberGenerator, talent_factor: float) -
 		rw["xp_min"] = int(x * 0.8)
 		rw["xp_max"] = int(x * 1.2)
 	if "gear" in types:
-		rw["items"] = 1 if minutes < 15 else 2
+		rw["items"] = (1 if minutes < 15 else 2) * Balance.LOOT_RATE
 		rw["ilvl_min"] = level
 		rw["ilvl_max"] = mini(level + 2, Balance.MAX_LEVEL + 2)
 		rw["rare_chance"] = clampf(0.1 + 0.3 * (mdiff - 0.9) + 0.012 * minutes, 0.0, 0.7)

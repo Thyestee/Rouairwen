@@ -12,7 +12,7 @@ const STAT_HELP := {
 	"Healing power": "Added to every heal, like in WoW: each spell adds a share of it, its coefficient. A direct heal gets its cast time / 3.5 sec (Lesser Heal 71%, Flash Heal 43%), Renew 100% split between its ticks, party-wide heals half of that. From Healing and Spell Damage on gear.",
 	"Healing bonus": "How much more your heals restore from Spiritual Healing, healing power included, and how much more your instant spells (Renew, Power Word: Shield, Prayer of Mending, Circle of Healing) restore or absorb from Twin Disciplines. Elixirs add more in fights.",
 	"Spell critical strike": "Chance for a heal to restore 50% more. From Intellect, gear and Holy Specialization.",
-	"Grade": "Their grade, F to SSS+. It multiplies their damage, and (square-rooted) their health. B adds a perk, A a class spell, S a racial. Recruits come up to A; training goes further.",
+	"Grade": "Their grade, F to SSS+: how much they grow. Each grade adds the stats their spec fights with, mostly as extra gains every level (Attack Power stats for fighters, Spell Damage and Intellect for casters, Stamina above all for tanks, Stamina for everyone). B adds a perk, A a class spell, S a racial. Recruits come up to A; training goes further.",
 	"Role": "Tanks hold enemies' attention, melee fight up close, ranged fight from afar.",
 	"Damage per second": "Average damage dealt each second against a single target, crits and attack speed included.",
 	"Critical damage": "How hard their critical strikes hit, as a multiple of a normal hit.",
@@ -159,6 +159,7 @@ func _attributes(m: Dictionary) -> Array:
 	var st := Game.member_stats(m)
 	var gear := Stats.gear_stats(m["gear"])
 	var base := Stats.base(cls, lvl)
+	var grade := Game.grade_stats(m)
 	var apf: Array = Stats.AP_FROM.get(cls, [1, 0])
 	var caster := Game.member_kind(m) in ["spell", "priest"]
 	var help := {
@@ -175,6 +176,8 @@ func _attributes(m: Dictionary) -> Array:
 	for k in Stats.PRIMARY:
 		var from_gear: float = gear.get(k, 0.0)
 		var detail := "Base %d, gear +%d" % [int(base[k]), int(from_gear)]
+		if grade.get(k, 0.0) >= 1.0:
+			detail = "Base %d, grade +%d, gear +%d" % [int(base[k]), int(grade[k]), int(from_gear)]
 		var pct: float = Game.member_mods(m).get(k + "%", 0.0)
 		if pct != 0.0:
 			detail += ", talents and traits %+d%%" % int(pct)
@@ -232,11 +235,11 @@ func _member_stats(m: Dictionary) -> Array:
 			"Chance for a spell to deal double damage. From Intellect, gear, talents and traits."])
 	else:
 		rows.append(["Attack Power", "%d" % int(st["attack_power"]),
-			"Raises their physical damage: x%.2f now, against %d Attack Power without gear." % [st["offense"], int(st["attack_power_base"])]])
+			"Raises their physical damage: x%.2f now, against %d Attack Power for an F grade without gear." % [st["offense"], int(st["attack_power_base"])]])
 		rows.append(["Critical strike", "%.1f%%" % crit,
 			"Chance for an attack to deal double damage. From Agility, gear, talents and traits."])
 	rows.append(["Critical damage", "x%.2f" % crit_mult])
-	rows.append(["Attack speed", "+%d%%" % int(haste)])
+	rows.append(["Attack speed", "%+d%%" % int(haste)])
 	rows.append(["Damage per second", "%d" % int(dps)])
 	rows.append(["Defense"])
 	rows.append(["Health", "%d" % int(spec["max_hp"])])
@@ -251,7 +254,8 @@ func _member_stats(m: Dictionary) -> Array:
 	else:
 		rows.append(["Attention drawn", "%d%%" % int(round(clampf(100.0 - mods.get("threat", 0.0), 20.0, 200.0)))])
 	rows.append(["Overall"])
-	rows.append(["Grade", "%s  (x%.2f)" % [Tiers.name_of(m["tier"]), Tiers.power(m["tier"])]])
+	var grade_now := ("\n\nAt level %d: %s." % [lvl, Tiers.stats_text(Game.grade_stats(m))]) if m["tier"] > 0 else ""
+	rows.append(["Grade", Tiers.name_of(m["tier"]), STAT_HELP["Grade"] + grade_now])
 	rows.append(["Role", Style.role_label(spec["role"])])
 	if mods.get("interrupt", 0.0) > 0.0:
 		rows.append(["Interrupt chance", "%d%%" % int(mods["interrupt"])])

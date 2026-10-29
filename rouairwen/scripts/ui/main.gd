@@ -77,16 +77,16 @@ func open_options() -> void:
 	kb.custom_minimum_size.x = 200
 	kb.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	v.add_child(kb)
-	v.add_child(Style.label("Experience (testing)", 15, Style.C["gold"]))
+	v.add_child(Style.label("Experience, gold and loot (testing)", 15, Style.C["gold"]))
 	var rates := Style.hbox(8)
 	var xg := ButtonGroup.new()
 	for on in [false, true]:
-		var b := Style.button("XP x%d" % Settings.XP_BOOST if on else "Normal")
+		var b := Style.button("x%d" % Settings.BOOST if on else "Normal")
 		b.toggle_mode = true
 		b.button_group = xg
-		b.button_pressed = Settings.xp_boost == on
+		b.button_pressed = Settings.boost == on
 		b.custom_minimum_size.x = 140
-		b.pressed.connect(_set_xp_boost.bind(on))
+		b.pressed.connect(_set_boost.bind(on))
 		rates.add_child(b)
 	v.add_child(rates)
 	var h := Style.hbox(10)
@@ -116,8 +116,8 @@ func _set_scale(s: float) -> void:
 	Settings.save_settings()
 
 
-func _set_xp_boost(on: bool) -> void:
-	Settings.xp_boost = on
+func _set_boost(on: bool) -> void:
+	Settings.boost = on
 	Settings.save_settings()
 	if screen is HubScreen:
 		screen.refresh()

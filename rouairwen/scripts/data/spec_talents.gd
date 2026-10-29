@@ -16,6 +16,7 @@ const TIERS := 8
 const EFFECTS := {
 	"str%": ["Strength", "+%s%% Strength"], "agi%": ["Agility", "+%s%% Agility"], "sta%": ["Stamina", "+%s%% Stamina"],
 	"int%": ["Intellect", "+%s%% Intellect"], "spi%": ["Spirit", "+%s%% Spirit"],
+	"grade%": ["Growth", "+%s%% stats from their grade"],
 	"dps": ["Damage", "+%s%% damage"],
 	"crit": ["Critical strike", "+%s%% critical strike chance"],
 	"crit_dmg": ["Critical damage", "+%s%% critical strike damage"],
@@ -50,7 +51,7 @@ const GROUP_KEYS := ["party_dps", "party_crit", "party_hp", "party_mit", "priest
 
 ## How much one point of an effect is worth when estimating a guildmate's power (in % of power).
 const WEIGHTS := {
-	"str%": 0.45, "agi%": 0.35, "sta%": 0.15, "int%": 0.1, "spi%": 0.0,
+	"str%": 0.45, "agi%": 0.35, "sta%": 0.15, "int%": 0.1, "spi%": 0.0, "grade%": 0.3,
 	"dps": 1.0, "crit": 0.9, "crit_dmg": 0.11, "haste": 0.9, "hp": 0.4, "mit": 0.6, "dodge": 0.4, "aggro": 0.4,
 	"threat": 0.05, "boss": 0.5, "aoe": 0.3, "execute": 0.2, "leech": 0.3, "extra_attack": 0.9, "opener": 0.2,
 	"interrupt": 0.1, "cheat_death": 0.03, "last_stand": 0.12, "party_dps": 2.5, "party_crit": 2.2,
@@ -582,11 +583,42 @@ const TRAITS := {
 		["Bulwark", {"party_mit": 2}], ["Interrupter", {"interrupt": 15}], ["Bloodthirsty", {"leech": 2}]],
 }
 
-## ...and up to 2 affixes, which can be good or bad.
-const AFFIXES_GOOD := [["Sturdy", {"sta%": 8}], ["Keen", {"crit": 2}], ["Swift", {"haste": 3}], ["Inspiring", {"party_dps": 1}],
-	["Wise", {"priest_regen": 4}], ["Tough", {"mit": 3}], ["Focused", {"dps": 3}], ["Lucky", {"cheat_death": 25}]]
-const AFFIXES_BAD := [["Frail", {"sta%": -8}], ["Clumsy", {"crit": -2}], ["Sluggish", {"haste": -3}], ["Reckless", {"threat": -15}],
-	["Timid", {"dps": -4}], ["Brittle", {"mit": -3}], ["Distracted", {"aggro": -4}], ["Cowardly", {"opener": -10}]]
+## ...and up to 2 affixes, which can be good or bad: [name, effects, who can have it]. Who: "" anyone,
+## "str" or "agi" those whose Attack Power comes from it, "spell" casters, "tank" tanks, "dps" anyone
+## but tanks. A better grade brings better odds of good ones (see GameState.roll_affixes).
+const AFFIXES_GOOD := [["Sturdy", {"sta%": 8}, ""], ["Keen", {"crit": 2}, ""], ["Swift", {"haste": 3}, ""],
+	["Inspiring", {"party_dps": 1}, ""], ["Wise", {"priest_regen": 4}, ""], ["Tough", {"mit": 3}, ""],
+	["Focused", {"dps": 3}, ""], ["Lucky", {"cheat_death": 25}, ""],
+	["Gifted", {"grade%": 15}, ""], ["Vigorous", {"hp": 6}, ""], ["Ruthless", {"crit_dmg": 10}, "dps"],
+	["Herculean", {"str%": 10}, "str"], ["Graceful", {"agi%": 10}, "agi"], ["Brilliant", {"int%": 10}, "spell"],
+	["Arcane-Touched", {"crit": 1, "int%": 5}, "spell"], ["Eager", {"opener": 15}, "dps"], ["Vengeful", {"execute": 12}, "dps"],
+	["Ironhide", {"mit": 4, "sta%": 4}, "tank"], ["Menacing", {"aggro": 5}, "tank"], ["Evasive", {"dodge": 3}, ""],
+	["Rallying", {"party_hp": 1}, ""], ["Tactician", {"enemy_vuln": 1}, ""]]
+const AFFIXES_BAD := [["Frail", {"sta%": -8}, ""], ["Clumsy", {"crit": -2}, ""], ["Sluggish", {"haste": -3}, ""],
+	["Reckless", {"threat": -15}, "dps"], ["Timid", {"dps": -4}, ""], ["Brittle", {"mit": -3}, ""],
+	["Distracted", {"aggro": -4}, "tank"], ["Cowardly", {"opener": -10}, "dps"],
+	["Stunted", {"grade%": -12}, ""], ["Sickly", {"hp": -5}, ""], ["Weak", {"str%": -8}, "str"], ["Stiff", {"agi%": -8}, "agi"],
+	["Dim", {"int%": -8}, "spell"], ["Careless", {"dodge": -2}, ""], ["Glass Jaw", {"mit": -4}, "tank"],
+	["Hesitant", {"interrupt": -10}, ""], ["Wasteful", {"crit_dmg": -10}, "dps"]]
+
+
+## Whether an affix suits a spec (see AFFIXES_GOOD).
+static func affix_fits(affix: Array, spec_id: String) -> bool:
+	var who: String = affix[2] if affix.size() > 2 else ""
+	var sp: Dictionary = ClassData.SPECS[spec_id]
+	var apf: Array = Stats.AP_FROM.get(sp["class"], [1, 0])
+	match who:
+		"str":
+			return sp["stat"] != "spell" and apf[0] > 0
+		"agi":
+			return sp["stat"] != "spell" and apf[1] > 0
+		"spell":
+			return sp["stat"] == "spell"
+		"tank":
+			return sp["role"] == "tank"
+		"dps":
+			return sp["role"] != "tank"
+	return true
 
 
 static func points_at(level: int) -> int:

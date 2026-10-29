@@ -107,7 +107,7 @@ static func make_quest(player_level: int, rng: RandomNumberGenerator, easy := fa
 	var text: String = String(tpl["text"]).format(words, "{_}")
 
 	var reward_mult: float = k["reward"]
-	var gold := Balance.income(ql) * (1.5 + n_fights) * reward_mult
+	var gold := Balance.income(ql) * (1.5 + n_fights) * reward_mult * Balance.LOOT_RATE
 	var items: Array = QUEST_ITEMS[kind]
 	return {
 		"type": "quest", "kind": kind, "title": title, "text": text, "place": z["name"], "zone": z["id"],
@@ -117,7 +117,7 @@ static func make_quest(player_level: int, rng: RandomNumberGenerator, easy := fa
 		"rewards": {
 			"xp": int(Balance.xp_per_fight(ql) * (0.8 + 0.25 * n_fights) * reward_mult),
 			"gold_min": int(gold * 0.6), "gold_max": int(gold * 1.6),
-			"items_min": items[0], "items_max": items[1],
+			"items_min": items[0] * Balance.LOOT_RATE, "items_max": items[1] * Balance.LOOT_RATE,
 			"ilvl_min": ql, "ilvl_max": mini(ql + 2, Balance.MAX_LEVEL + 2),
 			"rare_chance": items[2] + 0.004 * ql,
 			"epic_chance": maxf(0.0, 0.02 + 0.002 * (ql - 30)) if kind == "elite" and ql >= 30 else 0.0,
@@ -128,9 +128,10 @@ static func make_quest(player_level: int, rng: RandomNumberGenerator, easy := fa
 ## Rolls a quest's rewards when it is turned in: gold in its range, and gear pieces whose item level
 ## and quality follow the quest level. The first piece is the guaranteed role piece; the others lean
 ## towards what the party wears (`profiles`). `maker` builds an item from (ilvl, quality, profile).
-static func roll_rewards(rw: Dictionary, guaranteed: String, profiles: Array, rng: RandomNumberGenerator, maker: Callable) -> Dictionary:
+## `boost` (the testing option) multiplies the number of pieces.
+static func roll_rewards(rw: Dictionary, guaranteed: String, profiles: Array, rng: RandomNumberGenerator, maker: Callable, boost := 1) -> Dictionary:
 	var items := []
-	for i in rng.randi_range(rw["items_min"], rw["items_max"]):
+	for i in rng.randi_range(rw["items_min"], rw["items_max"]) * boost:
 		var q := "uncommon"
 		var r := rng.randf()
 		if r < rw["epic_chance"]:

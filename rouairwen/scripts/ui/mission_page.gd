@@ -63,14 +63,15 @@ func _card() -> PanelContainer:
 func _rewards_text(rw: Dictionary) -> String:
 	var parts := []
 	if rw.has("gold_min"):
-		parts.append("%s – %s" % [Balance.money_bb(rw["gold_min"]), Balance.money_bb(rw["gold_max"])])
+		parts.append("%s – %s" % [Balance.money_bb(rw["gold_min"] * Settings.boost_rate()), Balance.money_bb(rw["gold_max"] * Settings.boost_rate())])
 	if rw.has("xp_min"):
-		parts.append("%s – %s XP" % [Balance.big(rw["xp_min"] * Settings.xp_rate()), Balance.big(rw["xp_max"] * Settings.xp_rate())])
+		parts.append("%s – %s XP" % [Balance.big(rw["xp_min"] * Settings.boost_rate()), Balance.big(rw["xp_max"] * Settings.boost_rate())])
 	if rw.has("items"):
 		var odds := "[color=#0070dd]%d%% rare[/color]" % int(round(rw["rare_chance"] * 100.0))
 		if rw.get("epic_chance", 0.0) > 0.0:
 			odds += ", [color=#a335ee]%d%% epic[/color]" % int(round(rw["epic_chance"] * 100.0))
-		parts.append("%d gear piece%s, item level %d–%d (%s)" % [rw["items"], "" if rw["items"] == 1 else "s", rw["ilvl_min"], rw["ilvl_max"], odds])
+		var n: int = rw["items"] * Settings.boost_rate()
+		parts.append("%d gear piece%s, item level %d–%d (%s)" % [n, "" if n == 1 else "s", rw["ilvl_min"], rw["ilvl_max"], odds])
 	return "[color=#c09f86]Rewards:[/color] " + " · ".join(parts)
 
 
@@ -233,6 +234,8 @@ func _collect(index: int) -> void:
 			v.add_child(Style.rich("[color=#c09f86]Received:[/color] " + ", ".join(gains), 15))
 		if res["levels"] > 0:
 			v.add_child(Style.label("You reached level %d!" % Game.level(), 20, Style.C["gold"], true))
+		# The pieces in a list that scrolls when there are many
+		var list := Style.vbox(4)
 		for it in res["items"]:
 			var bw := Game.best_wearer(it)
 			var note := ("[color=#6ee06e]Upgrade for %s[/color]" % bw[0]["name"]) if bw[0] != null else "[color=#8a7262]Not an upgrade for anyone.[/color]"
@@ -242,7 +245,11 @@ func _collect(index: int) -> void:
 			row.add_child(ib)
 			row.add_child(Style.rich(note, 13))
 			row.get_child(1).size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			v.add_child(row)
+			list.add_child(row)
+		if not res["items"].is_empty():
+			var sc := Style.scroll(list)
+			sc.custom_minimum_size.y = minf(res["items"].size() * 30.0, 300.0)
+			v.add_child(sc)
 	else:
 		v.add_child(Style.label("Your guildmates come back empty-handed but unharmed. Counter more threats or send a stronger team.", 15, Style.C["muted"]))
 		v.get_child(1).autowrap_mode = TextServer.AUTOWRAP_WORD_SMART

@@ -20,10 +20,11 @@ static func traits_bb(m: Dictionary) -> String:
 	return "\n".join(lines)
 
 
-## What a guildmate's grade has given them besides damage, and what the next unlock is.
+## What a guildmate's grade gives them: its stats at the guild's level, then its unlocks.
 static func grade_bb(m: Dictionary) -> String:
-	var lines := []
 	var t: int = m["tier"]
+	var lines := ["[color=#c09f86]Stats at level %d:[/color] %s" % [Game.level(),
+		Tiers.stats_text(Game.grade_stats(m)) if t > 0 else "none yet (F)"]]
 	for g in [Tiers.B, Tiers.A, Tiers.S]:
 		var col := Tiers.color_of(g).to_html(false)
 		var what := unlock_text(m, g)

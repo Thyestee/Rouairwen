@@ -176,8 +176,8 @@ func _member(sid: String, level: int, tier: int, gear: float, rng: RandomNumberG
 		SpecTalents.add_effects(mods, Tiers.B_PERKS[rng.randi() % Tiers.B_PERKS.size()][1])
 	var races: Array = ClassData.CLASSES[cls]["races"]
 	var grade := SpecTalents.grade_spells(cls, races[rng.randi() % races.size()], tier)
-	var st := Stats.compute_stats(cls, kind, level, _gear(cls, profile, level, gear), mods)
-	return CombatEngine.member_spec(sid, sid, Tiers.power(tier), st, mods,
+	var st := Stats.compute_stats(cls, kind, level, _gear(cls, profile, level, gear), mods, Tiers.stats(sid, tier, level))
+	return CombatEngine.member_spec(sid, sid, st, mods,
 		SpecTalents.abilities_for(sid, tal, mods, grade) if ABILITIES else [], level)
 
 
@@ -252,11 +252,13 @@ func _economy() -> void:
 	var fights := 0.0
 	var gold := 0.0
 	for l in range(1, 61):
-		var f := Balance.fights_per_level(l) / 1.2
+		# Fights a level takes at the current experience rate (the model was made at 1.5), and the gold
+		# they pay at the current loot rate.
+		var f := Balance.fights_per_level(l) / 1.2 * 1.5 / Balance.XP_RATE
 		if l == 60:
 			f = 0.0
 		fights += f
-		gold += f * Balance.income(l) * 1.9
+		gold += f * Balance.income(l) * 1.9 * Balance.LOOT_RATE
 		var hc := ""
 		for h in range(2, 11):
 			if Balance.HALL_LEVEL_REQ[h] == l:

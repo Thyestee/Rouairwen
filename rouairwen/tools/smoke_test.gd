@@ -16,15 +16,19 @@ func run() -> void:
 	DirAccess.make_dir_recursive_absolute(shot_dir)
 	Game.save_path = "user://smoke_save.txt"
 	# Plays at normal experience whatever the options say (not saved, so the player's choice stays).
-	Settings.xp_boost = false
+	Settings.boost = false
 	# A fixed seed makes every run play the same fights, so a failure is reproducible.
 	Game.rng.seed = 20261027
 	await _frames(5)
 	await _shot("01_title")
 	Game.new_game()
-	Settings.xp_boost = true
-	_check(Game._grant(1, 0, [])["xp"] == Settings.XP_BOOST, "the testing option multiplies experience")
-	Settings.xp_boost = false
+	Settings.boost = true
+	var boosted := Game._grant(1, 1, [])
+	_check(boosted["xp"] == Settings.BOOST and boosted["gold"] == Settings.BOOST, "the testing option multiplies experience and gold")
+	Settings.boost = false
+	Game.data["gold"] -= Settings.BOOST
+	_check_rewards()
+	_check_grades()
 	Game.data["priest"]["xp"] = 0
 	_check_coefficients()
 	_check(Game.members().all(func(m): return m["traits"].size() == 2 and m["affixes"].is_empty()), "founders have 2 traits and no affixes")
@@ -392,6 +396,49 @@ func _check_lightwell(e: CombatEngine) -> void:
 	for i in 2:
 		e._tick_lightwell(0.5)
 	_check(standing and e.lightwell.is_empty(), "the Lightwell fades after 20 sec, its charges unused")
+
+
+## Rewards are 4 times what they were: experience, gold, and gear pieces (the boost multiplies them again).
+func _check_rewards() -> void:
+	var q: Dictionary = Game.data["quests"][0]
+	_check(q["rewards"]["items_min"] >= Balance.LOOT_RATE, "quests give %d times the gear (%d–%d pieces)" % [Balance.LOOT_RATE,
+		q["rewards"]["items_min"], q["rewards"]["items_max"]])
+	var rw: Dictionary = q["rewards"].duplicate()
+	rw["items_min"] = 2
+	rw["items_max"] = 2
+	var r := Activities.roll_rewards(rw, "", [], Game.rng, Game.wearable_item, Settings.BOOST)
+	_check(r["items"].size() == 2 * Settings.BOOST, "the testing option multiplies the number of pieces")
+	_check(Balance.xp_per_fight(10) == int(round(Balance.xp_to_next(10) / Balance.fights_per_level(10) * 6.0)), "experience is 4 times the old 1.5 rate")
+
+
+## Grades give the stats a spec fights with, mostly as gains per level; affixes fit the spec.
+func _check_grades() -> void:
+	_check(Tiers.stats("warrior_fury", 0, 60).is_empty(), "an F grade adds no stats")
+	var fury := Tiers.stats("warrior_fury", 10, 60)
+	var mage := Tiers.stats("mage_frost", 10, 60)
+	var tank := Tiers.stats("warrior_protection", 10, 60)
+	_check(fury.get("str", 0.0) > fury.get("sta", 0.0) and not fury.has("sp"), "a Fury warrior's grade is mostly Strength (%s)" % Tiers.stats_text(fury))
+	_check(mage.get("sp", 0.0) > 0.0 and mage.get("int", 0.0) > 0.0 and not mage.has("str"), "a mage's grade is Spell Damage and Intellect (%s)" % Tiers.stats_text(mage))
+	_check(tank.get("sta", 0.0) > fury.get("sta", 0.0) and tank.get("def", 0.0) > 0.0, "a tank's grade is mostly Stamina, with Defense (%s)" % Tiers.stats_text(tank))
+	var low := Tiers.stats("warrior_fury", 10, 10)
+	_check(low["str"] / Stats.base("warrior", 10)["str"] < fury["str"] / Stats.base("warrior", 60)["str"], "a grade grows with the levels")
+	var plain := Stats.compute_stats("warrior", "physical", 60, {})
+	var graded := Stats.compute_stats("warrior", "physical", 60, {}, {}, fury)
+	_check(graded["offense"] > plain["offense"] and graded["health_mult"] > plain["health_mult"], "grade stats raise damage and health")
+	var wrong := 0
+	for i in 200:
+		for a in Game.roll_affixes("warrior_fury", 0):
+			if a[0] in ["Brilliant", "Dim", "Arcane-Touched", "Ironhide", "Menacing", "Glass Jaw", "Distracted"]:
+				wrong += 1
+	_check(wrong == 0, "affixes suit the spec (no caster or tank affixes on a Fury warrior)")
+	var good_f := 0
+	var good_a := 0
+	for i in 400:
+		for a in Game.roll_affixes("mage_fire", 0):
+			good_f += 1 if SpecTalents.power_value(a[1]) > 0.0 else 0
+		for a in Game.roll_affixes("mage_fire", Tiers.A):
+			good_a += 1 if SpecTalents.power_value(a[1]) > 0.0 else 0
+	_check(good_a > good_f, "better grades bring better affixes (%d against %d good)" % [good_a, good_f])
 
 
 ## WoW-style coefficients: each heal adds its share of healing power, Renew 100% split over its ticks.

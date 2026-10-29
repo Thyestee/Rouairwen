@@ -11,7 +11,7 @@ var save_path := "user://lumens_save.txt"
 const PRIEST_NAME := "Thyeste"
 const PRIEST_RACE := "undead"
 const MAX_GUILD := 10
-const BANK_SIZE := 80
+const BANK_SIZE := 120
 const QUEST_BOARD := 6
 const RECRUIT_BOARD := 3
 ## Version 2: talent trees with abilities (guildmates from older saves get the recommended build).
@@ -188,7 +188,7 @@ func new_game() -> void:
 func _new_member(mname: String, race: String, spec_id: String, tier: int, with_affixes := true) -> Dictionary:
 	var m := {"id": Items.new_uid(), "name": mname, "race": race, "spec": spec_id, "class": ClassData.class_of(spec_id),
 		"tier": tier, "gear": {}, "founder": false, "talents": {}, "auto_talents": true, "talent_version": TALENT_VERSION,
-		"traits": roll_traits(spec_id), "affixes": roll_affixes() if with_affixes else []}
+		"traits": roll_traits(spec_id), "affixes": roll_affixes(spec_id, tier) if with_affixes else []}
 	m["talents"] = SpecTalents.auto_build(spec_id, {}, level() if not data.is_empty() else 1)
 	_grade_perk(m)
 	return m
@@ -201,13 +201,17 @@ func roll_traits(spec_id: String) -> Array:
 	return [pool[0].duplicate(true), pool[1].duplicate(true)]
 
 
-func roll_affixes() -> Array:
+## Up to 2 affixes that suit the spec. The better the grade, the likelier each is good: 45% at F,
+## 85% at A.
+func roll_affixes(spec_id: String, tier: int) -> Array:
 	var r := rng.randf()
 	var n := 0 if r < 0.35 else (1 if r < 0.8 else 2)
+	var good := SpecTalents.AFFIXES_GOOD.filter(func(a): return SpecTalents.affix_fits(a, spec_id))
+	var bad := SpecTalents.AFFIXES_BAD.filter(func(a): return SpecTalents.affix_fits(a, spec_id))
 	var out := []
 	var used := []
 	while out.size() < n:
-		var pool: Array = SpecTalents.AFFIXES_GOOD if rng.randf() < 0.55 else SpecTalents.AFFIXES_BAD
+		var pool: Array = good if rng.randf() < 0.45 + 0.04 * tier else bad
 		var a: Array = pool[rng.randi() % pool.size()]
 		if not (a[0] in used):
 			used.append(a[0])
@@ -271,32 +275,46 @@ func member_kind(m: Dictionary) -> String:
 	return "spell" if sp["stat"] == "spell" else "physical"
 
 
-## Every stat of a character (Stats.compute): base, gear and talent percentages, plus derived values.
+## Every stat of a character (Stats.compute): base, grade, gear and talent percentages, plus derived values.
 func member_stats(m: Dictionary) -> Dictionary:
-	return Stats.compute(member_class(m), member_kind(m), level(), m["gear"], member_mods(m))
+	return Stats.compute(member_class(m), member_kind(m), level(), m["gear"], member_mods(m), grade_stats(m))
+
+
+## What a guildmate's grade adds to their stats at the guild's level (nothing for Thyeste), with
+## Gifted or Stunted affixes ("grade%") applied.
+func grade_stats(m: Dictionary, tier := -1) -> Dictionary:
+	if is_priest(m):
+		return {}
+	var out := Tiers.stats(m["spec"], m["tier"] if tier < 0 else tier, level())
+	var pct: float = member_mods(m).get("grade%", 0.0)
+	if pct != 0.0:
+		for k in out:
+			out[k] *= 1.0 + pct / 100.0
+	return out
 
 
 ## How much stronger gear makes a character than naked: damage for guildmates, healing for Thyeste.
 func gear_bonus(m: Dictionary) -> float:
 	var mods := member_mods(m)
-	var worn := Stats.compute(member_class(m), member_kind(m), level(), m["gear"], mods)
+	var worn := Stats.compute(member_class(m), member_kind(m), level(), m["gear"], mods, grade_stats(m))
 	if is_priest(m):
 		return worn["heal_mult"] - 1.0
-	var naked := Stats.compute(member_class(m), member_kind(m), level(), {}, mods)
+	var naked := Stats.compute(member_class(m), member_kind(m), level(), {}, mods, grade_stats(m))
 	return worn["offense"] / naked["offense"] - 1.0
 
 
-## A guildmate's power: grade times their stats' damage, times what their talents, abilities, traits
-## and affixes are worth. 1.0 is an F grade naked. Thyeste's power is her healing multiplier.
+## A guildmate's power: the damage their stats give (grade and gear), times what their talents,
+## abilities, traits and affixes are worth. 1.0 is an F grade naked. Thyeste's power is her healing
+## multiplier.
 func member_power(m: Dictionary) -> float:
 	if is_priest(m):
 		return member_stats(m)["heal_mult"]
 	return core_power(m) * (1.0 + SpecTalents.power_value(member_mods(m)) + SpecTalents.ability_value(member_abilities(m)))
 
 
-## Grade times the damage their stats give: what a guildmate's damage scales with.
+## The damage their stats give, grade included: what a guildmate's damage scales with.
 func core_power(m: Dictionary) -> float:
-	return Tiers.power(m["tier"]) * member_stats(m)["offense"]
+	return member_stats(m)["offense"]
 
 
 ## All effects on a guildmate: talents, traits, affixes and the grade B perk.
@@ -626,7 +644,7 @@ func collect_mission(index: int) -> Dictionary:
 	var res := {"success": success, "xp": 0, "gold": 0, "items": [], "levels": 0, "title": mission["title"]}
 	if success:
 		var items := []
-		for i in rw.get("items", 0):
+		for i in rw.get("items", 0) * Settings.boost_rate():
 			var q := "uncommon"
 			var r := rng.randf()
 			if r < rw.get("epic_chance", 0.0):
@@ -730,16 +748,20 @@ func _take(cat: String) -> int:
 
 # ---------------------------------------------------------------- items
 
-func _bank_add(item: Dictionary) -> void:
+## Puts an item in the guild bank; a full bank sells it instead. Returns what it sold for (0 when
+## banked). `quiet` leaves the toast to the caller, for rewards with many pieces.
+func _bank_add(item: Dictionary, quiet := false) -> int:
 	if item.is_empty():
-		return
+		return 0
 	var bank: Array = data["bank"]
 	if bank.size() >= BANK_SIZE:
 		var c := Items.sell_price(item)
 		add_gold(c)
-		toast.emit("Guild bank full: %s was sold for %s." % [item["name"], Balance.money(c)])
-		return
+		if not quiet:
+			toast.emit("Guild bank full: %s was sold for %s." % [item["name"], Balance.money(c)])
+		return c
 	bank.append(item)
+	return 0
 
 
 func bank_item(uid: int) -> Dictionary:
@@ -952,7 +974,7 @@ func _buff_value(buffs: Dictionary, cat: String) -> float:
 ## Combat numbers for a guildmate. Health, damage, damage taken and threat get their talent/trait/affix
 ## effects here; the rest of the effects go to the engine in "mods".
 func member_combat_spec(m: Dictionary, buffs: Dictionary) -> Dictionary:
-	return CombatEngine.member_spec(m["name"], m["spec"], Tiers.power(m["tier"]), member_stats(m), member_mods(m),
+	return CombatEngine.member_spec(m["name"], m["spec"], member_stats(m), member_mods(m),
 		member_abilities(m), level(), _buff_value(buffs, "battle_elixir") + _buff_value(buffs, "world"),
 		_buff_value(buffs, "guardian_elixir"))
 
@@ -1097,7 +1119,7 @@ func fight_won(eng: CombatEngine) -> Dictionary:
 	if type == "quest":
 		xp_mult *= act["diff"]
 	var xp := int(Balance.xp_per_fight(cl) * xp_mult * Balance.xp_level_factor(level(), cl))
-	var g := int(Balance.income(cl) * gold_mult * rng.randf_range(0.85, 1.15))
+	var g := int(Balance.income(cl) * gold_mult * rng.randf_range(0.85, 1.15) * Balance.LOOT_RATE)
 	var items := _roll_loot(fight, act)
 	data["stats"]["fights"] += 1
 	run["fight"] += 1
@@ -1129,8 +1151,11 @@ func fight_won(eng: CombatEngine) -> Dictionary:
 	return res
 
 
+## Hands out a reward. The testing boost multiplies experience and gold here (and the number of
+## pieces where they are rolled).
 func _grant(xp: int, g: int, items: Array) -> Dictionary:
-	xp *= Settings.xp_rate()
+	xp *= Settings.boost_rate()
+	g *= Settings.boost_rate()
 	var levels := 0
 	var p: Dictionary = data["priest"]
 	if p["level"] < Balance.MAX_LEVEL:
@@ -1144,8 +1169,15 @@ func _grant(xp: int, g: int, items: Array) -> Dictionary:
 	else:
 		xp = 0
 	add_gold(g)
+	var sold := 0
+	var sold_for := 0
 	for it in items:
-		_bank_add(it)
+		var price := _bank_add(it, true)
+		if price > 0:
+			sold += 1
+			sold_for += price
+	if sold > 0:
+		toast.emit("Guild bank full: %d piece%s sold for %s." % [sold, "" if sold == 1 else "s", Balance.money(sold_for)])
 	if not run.is_empty():
 		run["xp"] += xp
 		run["gold"] += g
@@ -1196,7 +1228,7 @@ func complete_quest() -> Dictionary:
 		var m := member(id)
 		if not m.is_empty():
 			profiles.append(member_stat(m))
-	var roll := Activities.roll_rewards(rw, act.get("guaranteed", ""), profiles, rng, wearable_item)
+	var roll := Activities.roll_rewards(rw, act.get("guaranteed", ""), profiles, rng, wearable_item, Settings.boost_rate())
 	var res := _grant(int(rw["xp"] * Balance.xp_level_factor(level(), act["level"])), roll["gold"], roll["items"])
 	data["stats"]["quests"] += 1
 	data["quests"].erase(act)
@@ -1240,7 +1272,15 @@ func _party_classes() -> Array:
 	return out
 
 
+## A won fight's gear: its drops rolled LOOT_RATE times over (times the testing boost).
 func _roll_loot(fight: Dictionary, act: Dictionary) -> Array:
+	var out := []
+	for i in Balance.LOOT_RATE * Settings.boost_rate():
+		out.append_array(_roll_drops(fight, act))
+	return out
+
+
+func _roll_drops(fight: Dictionary, act: Dictionary) -> Array:
 	var out := []
 	var type: String = act["type"]
 	match type:
