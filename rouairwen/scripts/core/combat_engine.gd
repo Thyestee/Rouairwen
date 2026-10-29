@@ -189,6 +189,13 @@ var next_uid := 1
 var stats := {"healing": 0.0, "overheal": 0.0, "absorbed": 0.0, "mana_spent": 0.0, "dispels": 0, "deaths": 0}
 var _talent_values := {}
 var _focus_crit := false
+## Engraved runes (Runes.LIST ids) and what they keep track of.
+var runes: Array = []
+var clarity_count := 0
+var desperate_cd := 0.0
+var guardian_cd := 0.0
+var atone_pool := 0.0
+var atone_timer := 1.0
 
 
 ## party_specs: guildmates; priest_spec: the player's priest; enemy_specs: from Encounters.build.
@@ -201,6 +208,7 @@ func setup(priest_spec: Dictionary, party_specs: Array, enemy_specs: Array, ctx:
 	for id in talents:
 		_talent_values[id] = Talents.value(talents, id)
 	known = priest_spec.get("known", ["heal"])
+	runes = priest_spec.get("runes", [])
 
 	priest = Unit.new()
 	priest.uid = _uid()
@@ -252,6 +260,8 @@ func setup(priest_spec: Dictionary, party_specs: Array, enemy_specs: Array, ctx:
 	for m in party:
 		m.mit *= 1.0 - group.get("party_mit", 0.0) / 100.0
 		m.max_hp *= 1.0 + group.get("party_hp", 0.0) / 100.0
+		if _rune("fortitude"):
+			m.max_hp *= 1.0 + _rv("fortitude") / 100.0
 		m.hp = m.max_hp
 		if m.is_priest:
 			continue
@@ -262,6 +272,8 @@ func setup(priest_spec: Dictionary, party_specs: Array, enemy_specs: Array, ctx:
 		if ClassData.SPECS.get(m.spec_id, {}).get("stat", "") == "physical" and utils_present.has("trueshot_aura"):
 			mult += 0.04
 		m.dps *= mult
+		if _rune("zeal"):
+			m.dps *= 1.0 + _rv("zeal") / 100.0
 
 	max_mana = priest_spec["max_mana"] * (1.0 + _tv("mental_strength") / 100.0) * (1.0 + group.get("priest_mana", 0.0) / 100.0)
 	if utils_present.has("arcane_intellect"):
@@ -272,6 +284,8 @@ func setup(priest_spec: Dictionary, party_specs: Array, enemy_specs: Array, ctx:
 	heal_power = priest_spec.get("heal_power", 0.0)
 	heal_mult = priest_spec.get("heal_mult", 1.0)
 	crit = priest_spec.get("crit", 0.05) + _tv("holy_specialization") / 100.0
+	if _rune("warding_light"):
+		crit += _rv("warding_light", "crit") / 100.0
 	soulstone = ctx.get("soulstone", false) and utils_present.has("soulstone")
 	windfury = utils_present.has("windfury")
 	windfury_chance = WINDFURY_CHANCE + group.get("windfury_bonus", 0.0) / 100.0
@@ -301,6 +315,14 @@ func _windfury_proc() -> bool:
 
 func _group(key: String) -> float:
 	return group.get(key, 0.0)
+
+
+func _rune(id: String) -> bool:
+	return id in runes
+
+
+func _rv(id: String, key := "value") -> float:
+	return Runes.value(id, key)
 
 
 ## Effects that change the combat stats themselves are applied here; the rest ride along in "mods".
@@ -433,7 +455,20 @@ func cooldown_left(id: String) -> float:
 	return cooldowns.get(id, 0.0)
 
 
+## The cooldown a spell starts when cast (the Rune of Penitence shortens Penance's).
+func spell_cooldown(id: String) -> float:
+	var c: float = Spells.BOOK[id].get("cooldown", 0.0)
+	if id == "penance" and _rune("penitence"):
+		c -= _rv("penitence", "cooldown")
+	return c
+
+
 func spell_cost(id: String) -> float:
+	return 0.0 if priest.has("clearcasting") else _cost(id)
+
+
+## What a spell costs before Clearcasting (Rune of Clarity).
+func _cost(id: String) -> float:
 	var s: Dictionary = Spells.BOOK[id]
 	var cost: float = s["mana"] * u
 	if s["cast"] == 0.0 and not s.get("channel", 0):
@@ -442,6 +477,8 @@ func spell_cost(id: String) -> float:
 		cost *= 1.0 - _tv("improved_healing") / 100.0
 	if id == "prayer_of_healing" or id == "prayer_of_mending":
 		cost *= 1.0 - _tv("healing_prayers") / 100.0
+	if id == "shield" and _rune("soul_warding"):
+		cost *= 1.0 - _rv("soul_warding") / 100.0
 	if inner_focus and id != "inner_focus":
 		cost = 0.0
 	if id == "flash_heal" and surge:
@@ -526,16 +563,20 @@ func cast(id: String, target) -> String:
 	if not s.get("off_gcd", false):
 		gcd = maxf(1.0, GCD / (1.0 + _haste()))
 	if s.get("channel", 0):
-		casting = {"id": id, "target": target, "remaining": s["cast"], "total": s["cast"], "channel": true,
-			"ticks": s["channel"], "tick_timer": 0.0}
-		_spend(spell_cost(id))
-		cooldowns[id] = s.get("cooldown", 0.0)
+		# One bolt a second; the Rune of Penitence adds bolts and channels longer.
+		var penitent := id == "penance" and _rune("penitence")
+		var bolts: int = s["channel"] + (int(_rv("penitence")) if penitent else 0)
+		var dur: float = s["cast"] + bolts - s["channel"]
+		casting = {"id": id, "target": target, "remaining": dur, "total": dur, "channel": true,
+			"ticks": bolts, "bolts": bolts, "tick_timer": 0.0}
+		_spend(id)
+		cooldowns[id] = spell_cooldown(id)
 		borrowed_time = false
 		_channel_tick()
 		_focus_crit = false
 		return ""
 	if ct <= 0.0:
-		_spend(spell_cost(id))
+		_spend(id)
 		_resolve(id, target)
 		_focus_crit = false
 		return ""
@@ -565,8 +606,21 @@ func use_mana_potion() -> String:
 	return ""
 
 
-## Pays for a spell. Inner Focus is consumed here, but its crit bonus lasts until the spell resolves.
-func _spend(cost: float) -> void:
+## Pays for a spell as it goes off. Inner Focus is consumed here, but its crit bonus lasts until the
+## spell resolves. Clearcasting (Rune of Clarity) makes a spell free; paying for enough spells grants
+## it. Every spell cast adds a stack of Fervor (Rune of Fervor).
+func _spend(id: String) -> void:
+	var cost := _cost(id)
+	if cost > 0.0 and priest.has("clearcasting"):
+		priest.remove("clearcasting")
+		cost = 0.0
+	elif cost > 0.0 and _rune("clarity"):
+		clarity_count += 1
+		if clarity_count >= int(_rv("clarity")):
+			clarity_count = 0
+			priest.auras.append({"id": "clearcasting", "name": "Clearcasting", "remaining": 15.0, "icon": "focus",
+				"desc": "Your next spell costs no mana."})
+			floating.emit(priest, "Clearcasting", "info")
 	if cost > 0.0:
 		mana -= cost
 		since_spend = 0.0
@@ -574,6 +628,14 @@ func _spend(cost: float) -> void:
 	if inner_focus:
 		inner_focus = false
 		_focus_crit = true
+	if _rune("fervor"):
+		var f: Dictionary = priest.get_aura("fervor")
+		if f.is_empty():
+			f = {"id": "fervor", "name": "Fervor", "stacks": 0, "icon": "fury"}
+			priest.auras.append(f)
+		f["stacks"] = mini(f["stacks"] + 1, int(_rv("fervor", "stacks")))
+		f["remaining"] = _rv("fervor", "duration")
+		f["desc"] = "Your heals and shields are %d%% stronger." % int(f["stacks"] * _rv("fervor"))
 
 
 func _finish_cast() -> void:
@@ -586,7 +648,7 @@ func _finish_cast() -> void:
 		return
 	if Spells.BOOK[id]["cast"] > 0.0 and borrowed_time:
 		borrowed_time = false
-	_spend(cost)
+	_spend(id)
 	_resolve(id, target)
 	_focus_crit = false
 
@@ -596,15 +658,20 @@ func _channel_tick() -> void:
 	casting["ticks"] -= 1
 	if target != null and target.alive:
 		_heal(target, _base_heal("penance"), true, "penance")
-		if casting["ticks"] == Spells.BOOK["penance"]["channel"] - 1:
+		if casting["ticks"] == casting["bolts"] - 1:
 			_add_grace(target)
 	if casting["ticks"] <= 0:
 		casting = {}
 
 
-## A heal's amount before crits: base plus its coefficient of healing power, with every bonus.
+## A heal's amount before crits: base plus its coefficient of healing power, with every bonus
+## (Fervor's stacks included).
 func _base_heal(id: String) -> float:
-	return spell_amount(id, level, heal_power, heal_mult, talents)
+	var a := spell_amount(id, level, heal_power, heal_mult, talents)
+	var f: Dictionary = priest.get_aura("fervor")
+	if not f.is_empty():
+		a *= 1.0 + f["stacks"] * _rv("fervor") / 100.0
+	return a
 
 
 ## A spell's coefficient, Empowered Healing included.
@@ -686,21 +753,24 @@ func _resolve(id: String, target) -> void:
 			_add_grace(target)
 			if talents.get("serendipity", 0) > 0:
 				serendipity = mini(serendipity + 1, 3)
+			if _rune("binding"):
+				for m in _most_injured(2):
+					if m != target and m.hp < m.max_hp:
+						_heal(m, _base_heal(id) * _rv("binding") / 100.0, true, id, "Binding Light")
+						break
 		"shield":
 			var amt: float = _base_heal(id)
 			target.remove("pws")
-			target.auras.append({"id": "pws", "name": "Power Word: Shield", "remaining": 30.0, "absorb": amt, "icon": "shield", "mine": true})
-			target.remove("weakened_soul")
-			target.auras.append({"id": "weakened_soul", "name": "Weakened Soul", "remaining": 15.0, "icon": "weakened", "debuff": true,
-				"desc": "Cannot be protected by Power Word: Shield."})
+			target.auras.append({"id": "pws", "name": "Power Word: Shield", "remaining": 30.0, "absorb": amt, "strength": amt, "icon": "shield", "mine": true})
+			if not _rune("soul_warding"):
+				target.remove("weakened_soul")
+				target.auras.append({"id": "weakened_soul", "name": "Weakened Soul", "remaining": 15.0,
+					"icon": "weakened", "debuff": true, "desc": "Cannot be protected by Power Word: Shield."})
 			cooldowns["shield"] = s["cooldown"]
 			if talents.get("borrowed_time", 0) > 0:
 				borrowed_time = true
 		"renew":
-			var per: float = _base_heal(id) / s["ticks"]
-			target.remove("renew")
-			target.auras.append({"id": "renew", "name": "Renew", "remaining": s["duration"], "period": s["duration"] / s["ticks"],
-				"tick_timer": s["duration"] / s["ticks"], "heal": per, "icon": "renew", "mine": true})
+			_apply_renew(target)
 		"dispel":
 			var au := _dispellable(target)
 			if not au.is_empty():
@@ -708,8 +778,13 @@ func _resolve(id: String, target) -> void:
 				stats["dispels"] += 1
 				floating.emit(target, "Dispelled", "info")
 		"prayer_of_healing":
+			var echo_dur := _rv("echoing_prayer", "duration")
 			for m in _most_injured(s["max_targets"]):
 				_heal(m, _base_heal(id), true, id)
+				if _rune("echoing_prayer") and m.alive:
+					m.remove("echo")
+					m.auras.append({"id": "echo", "name": "Echoing Prayer", "remaining": echo_dur, "period": 2.0, "tick_timer": 2.0,
+						"heal": _base_heal(id) * _rv("echoing_prayer") / 100.0 * 2.0 / echo_dur, "icon": "poh", "mine": true})
 			serendipity = 0
 		"circle_of_healing":
 			for m in _most_injured(s["max_targets"]):
@@ -742,6 +817,32 @@ func _resolve(id: String, target) -> void:
 		cooldowns[id] = s["cooldown"]
 
 
+func _apply_renew(target: Unit) -> void:
+	var s: Dictionary = Spells.BOOK["renew"]
+	target.remove("renew")
+	target.auras.append({"id": "renew", "name": "Renew", "remaining": s["duration"], "period": s["duration"] / s["ticks"],
+		"tick_timer": s["duration"] / s["ticks"], "heal": _base_heal("renew") / s["ticks"], "icon": "renew", "mine": true})
+
+
+## Adds to a shield that builds up (Divine Aegis, Warding Light, Overflowing Light), up to a share of
+## the target's maximum health; each top-up restarts its 12 sec.
+func _add_absorb(target: Unit, id: String, aura_name: String, add: float, cap: float) -> void:
+	if add <= 0.0 or not target.alive:
+		return
+	var au: Dictionary = target.get_aura(id)
+	if au.is_empty():
+		target.auras.append({"id": id, "name": aura_name, "remaining": 12.0, "absorb": minf(add, target.max_hp * cap), "icon": id, "mine": true})
+	else:
+		au["absorb"] = minf(au["absorb"] + add, target.max_hp * cap)
+		au["remaining"] = 12.0
+
+
+## Rune of Overflowing Light: part of the overhealing becomes a shield.
+func _overflow(target: Unit, over: float) -> void:
+	if _rune("overflow") and over > 0.0:
+		_add_absorb(target, "overflow", "Overflowing Light", over * _rv("overflow") / 100.0, _rv("overflow", "cap") / 100.0)
+
+
 func _add_grace(target) -> void:
 	if talents.get("grace", 0) <= 0 or target == null:
 		return
@@ -759,10 +860,12 @@ func _most_injured(count: int) -> Array:
 	return list.slice(0, count)
 
 
-## Direct priest heal on a party member, with crits and their talent procs.
-func _heal(target, amount: float, can_crit: bool, source: String) -> float:
+## Direct priest heal on a party member, with crits and their talent and rune procs. `source` is the
+## spell; `label` names the heal in the log and on the meter instead (a rune's own heals).
+func _heal(target, amount: float, can_crit: bool, source: String, label := "") -> float:
 	if target == null or not target.alive:
 		return 0.0
+	var what := label if label != "" else Spells.display_name(source, level)
 	var c := crit + (0.25 if _focus_crit else 0.0)
 	var is_crit := can_crit and rng.randf() < c
 	if is_crit:
@@ -770,28 +873,25 @@ func _heal(target, amount: float, can_crit: bool, source: String) -> float:
 	var g: Dictionary = target.get_aura("grace")
 	if not g.is_empty():
 		amount *= 1.0 + g["stacks"] * _tv("grace") / 100.0
+	if _rune("desperate_prayer") and target.frac() * 100.0 < _rv("desperate_prayer", "below"):
+		amount *= 1.0 + _rv("desperate_prayer", "bonus") / 100.0
 	amount *= _mult(target, "heal_taken") * rng.randf_range(0.95, 1.05)
 	var eff := minf(amount, target.max_hp - target.hp)
 	target.hp += eff
 	stats["healing"] += eff
 	stats["overheal"] += amount - eff
 	priest.healing_done += eff
-	_meter(priest.healing_by, Spells.display_name(source, level), eff)
+	_meter(priest.healing_by, what, eff)
 	floating.emit(target, ("+%d!" if is_crit else "+%d") % int(amount), "crit_heal" if is_crit else "heal")
-	_log_heal(Spells.display_name(source, level), target, amount, eff, is_crit)
+	_log_heal(what, target, amount, eff, is_crit)
+	_overflow(target, amount - eff)
 	if is_crit:
 		if talents.get("inspiration", 0) > 0:
 			target.remove("inspiration")
 			target.auras.append({"id": "inspiration", "name": "Inspiration", "remaining": 15.0,
 				"dmg_taken": 1.0 - _tv("inspiration") / 100.0, "icon": "inspiration", "mine": true})
-		if talents.get("divine_aegis", 0) > 0:
-			var aeg: Dictionary = target.get_aura("aegis")
-			var add := amount * _tv("divine_aegis") / 100.0
-			if aeg.is_empty():
-				target.auras.append({"id": "aegis", "name": "Divine Aegis", "remaining": 12.0, "absorb": add, "icon": "aegis", "mine": true})
-			else:
-				aeg["absorb"] = minf(aeg["absorb"] + add, target.max_hp * 0.4)
-				aeg["remaining"] = 12.0
+		if _rune("warding_light"):
+			_add_absorb(target, "ward", "Warding Light", amount * _rv("warding_light") / 100.0, 0.4)
 		if talents.get("surge_of_light", 0) > 0 and source != "flash_heal" and rng.randf() * 100.0 < _tv("surge_of_light"):
 			surge = true
 			floating.emit(priest, "Surge of Light", "info")
@@ -842,6 +942,8 @@ func _damage_enemy(e: Unit, amount: float, source: Unit, label := "", is_crit :=
 	e.hp -= amount
 	if source != null:
 		source.damage_done += amount
+		if _rune("atonement") and not source.is_priest and not source.is_enemy:
+			atone_pool += amount * _rv("atonement") / 100.0
 		var what := label.trim_suffix(" (Windfury)") if label != "" else (meter if meter != "" else auto_attack(source.spec_id))
 		_meter(source.damage_by, what, amount)
 	if source == priest and label != "":
@@ -877,11 +979,26 @@ func damage(target: Unit, amount: float, attacker: Unit, label := "", meter := "
 		amount *= 1.4
 	if attacker != null and attacker.berserk > 0.0 and time > attacker.berserk:
 		amount *= 3.0
+	# Rune of Shared Pain: part of the hit is spread over the whole party, the target included.
+	if _rune("shared_pain") and not target.is_enemy:
+		var mates := alive_party().filter(func(m): return m.spirit <= 0.0)
+		if mates.size() > 1:
+			var share := amount * _rv("shared_pain") / 100.0
+			_take(target, amount - share, attacker, label, meter)
+			for m in mates:
+				if m.alive:
+					_take(m, share / mates.size(), attacker, "", "Shared Pain")
+			return
+	_take(target, amount, attacker, label, meter)
+
+
+## Damage after dodges and mitigation: shields soak it first, then health.
+func _take(target: Unit, amount: float, attacker: Unit, label: String, meter: String) -> void:
 	target.last_attacker = attacker
 	var total := amount
 	target.damage_taken += total
 	_meter(target.taken_by, label if label != "" else (meter if meter != "" else "Melee"), total)
-	# Absorbs: shields first, then Divine Aegis.
+	# Absorbs, oldest first. A Power Word: Shield used up pays Rapture and leaves a Divine Aegis.
 	for au in target.auras.duplicate():
 		if amount <= 0.0:
 			break
@@ -904,6 +1021,9 @@ func damage(target: Unit, amount: float, attacker: Unit, label := "", meter := "
 			if au["id"] == "pws" and talents.get("rapture", 0) > 0:
 				var gain := max_mana * _tv("rapture") / 100.0
 				mana = minf(max_mana, mana + gain)
+			if au["id"] == "pws" and talents.get("divine_aegis", 0) > 0:
+				for m in _most_injured(1):
+					_add_absorb(m, "aegis", "Divine Aegis", au.get("strength", 0.0) * _tv("divine_aegis") / 100.0, 0.4)
 	if total - amount > 0.5 and amount <= 0.0:
 		floating.emit(target, "Absorbed", "absorb")
 	target.hp -= amount
@@ -926,6 +1046,8 @@ func _on_damaged(m: Unit, total: float) -> void:
 	if not pom.is_empty() and total > 0.0 and m.hp > 0.0:
 		m.auras.erase(pom)
 		_heal(m, pom["heal"], true, "prayer_of_mending")
+		if _rune("mending") and m.alive:
+			_apply_renew(m)
 		pom["charges"] -= 1
 		if pom["charges"] > 0:
 			var next := _random_member(m)
@@ -934,6 +1056,10 @@ func _on_damaged(m: Unit, total: float) -> void:
 				next.auras.append(pom)
 	var f := m.hp / m.max_hp
 	if m.is_priest:
+		if _rune("desperate_prayer") and desperate_cd <= 0.0 and f * 100.0 < _rv("desperate_prayer", "below") and m.hp > 0.0 and m.spirit <= 0.0:
+			desperate_cd = _rv("desperate_prayer", "cooldown")
+			floating.emit(m, "Desperate Prayer", "info")
+			_heal(m, m.max_hp * _rv("desperate_prayer") / 100.0, true, "", "Desperate Prayer")
 		return
 	if f < 0.3 and "barkskin" in m.utils and not m.used.has("barkskin"):
 		m.used["barkskin"] = true
@@ -972,6 +1098,18 @@ func _party_has(util: String) -> bool:
 
 
 func _die(m: Unit) -> void:
+	# Rune of the Guardian Spirit (not when a Spirit of Redemption fades: that death was already cheated)
+	if _rune("guardian") and guardian_cd <= 0.0 and m.hp <= 0.0:
+		guardian_cd = _rv("guardian", "cooldown")
+		var to := m.max_hp * _rv("guardian") / 100.0
+		var gain := to - maxf(m.hp, 0.0)
+		m.hp = to
+		stats["healing"] += gain
+		priest.healing_done += gain
+		_meter(priest.healing_by, "Guardian Spirit", gain)
+		floating.emit(m, "Guardian Spirit", "info")
+		log_line.emit("[color=#fff4cf]The Guardian Spirit saves %s![/color]" % ("you" if m.is_priest else m.name))
+		return
 	if m.is_priest and talents.get("spirit_of_redemption", 0) > 0 and not m.used.has("spirit"):
 		m.used["spirit"] = true
 		m.spirit = 10.0
@@ -1018,6 +1156,7 @@ func tick(dt: float) -> void:
 	_tick_party(dt)
 	_tick_enemies(dt)
 	_tick_lightwell(dt)
+	_tick_atonement(dt)
 	_check_end(dt)
 
 
@@ -1027,6 +1166,8 @@ func _tick_priest(dt: float) -> void:
 	silenced = maxf(0.0, silenced - dt)
 	potion_cd = maxf(0.0, potion_cd - dt)
 	innervate_time = maxf(0.0, innervate_time - dt)
+	desperate_cd = maxf(0.0, desperate_cd - dt)
+	guardian_cd = maxf(0.0, guardian_cd - dt)
 	for k in cooldowns.keys():
 		cooldowns[k] = maxf(0.0, cooldowns[k] - dt)
 	if priest.alive:
@@ -1091,6 +1232,7 @@ func _tick_auras(unit: Unit, dt: float) -> void:
 						_meter(priest.healing_by, au["name"], eff)
 						floating.emit(unit, "+%d" % int(amt), "hot")
 						_log_heal(au["name"], unit, amt, eff, false)
+						_overflow(unit, amt - eff)
 					else:
 						_heal_other(unit, amt, au.get("source", unit), au["name"])
 				elif au.has("pdot"):
@@ -1670,6 +1812,24 @@ func _tick_lightwell(dt: float) -> void:
 		return
 	_heal(low, _base_heal("lightwell"), true, "lightwell")
 	lightwell["charges"] -= 1
+
+
+## Rune of Atonement: once a second, the share of the guild's damage gathered since heals the ally
+## with the lowest health. With everyone at full health it is lost.
+func _tick_atonement(dt: float) -> void:
+	if not _rune("atonement"):
+		return
+	atone_timer -= dt
+	if atone_timer > 0.0:
+		return
+	atone_timer += 1.0
+	var low: Unit = null
+	for m in alive_party():
+		if m.spirit <= 0.0 and m.hp < m.max_hp - 0.5 and (low == null or m.frac() < low.frac()):
+			low = m
+	if low != null and atone_pool > 0.0:
+		_heal(low, atone_pool, false, "", "Atonement")
+	atone_pool = 0.0
 
 
 func _check_end(dt: float) -> void:

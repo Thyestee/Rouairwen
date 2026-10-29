@@ -168,8 +168,10 @@ func _build_top() -> void:
 	h.add_child(Style.spacer())
 	var pts := Game.talent_points_free()
 	if pts > 0:
-		var tb := Style.button("%d talent point%s to spend" % [pts, "" if pts == 1 else "s"], open_page.bind("talents"), true)
+		var tb := Style.button("%d talent point%s to spend" % [pts, "" if pts == 1 else "s"], _open_talents.bind("talents"), true)
 		h.add_child(tb)
+	elif Game.empty_rune_slots() > 0:
+		h.add_child(Style.button("Engrave a rune", _open_talents.bind("runes"), true))
 	var right := Style.vbox(2)
 	var gold := Style.rich("[right][font_size=20]%s[/font_size][/right]" % Balance.money_bb(Game.gold()), 18)
 	gold.custom_minimum_size.x = 200
@@ -178,6 +180,12 @@ func _build_top() -> void:
 	hl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	right.add_child(hl)
 	h.add_child(right)
+
+
+## Talents & Spells, on its talent trees or its runes.
+func _open_talents(tab: String) -> void:
+	TalentPage.tab = tab
+	open_page("talents")
 
 
 func _build_nav() -> void:

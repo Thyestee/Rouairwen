@@ -148,7 +148,7 @@ func new_game() -> void:
 	Items._next_uid = 1
 	data = {
 		"version": 1,
-		"priest": {"name": PRIEST_NAME, "race": PRIEST_RACE, "level": 1, "xp": 0, "talents": {}, "respecs": 0, "gear": {}},
+		"priest": {"name": PRIEST_NAME, "race": PRIEST_RACE, "level": 1, "xp": 0, "talents": {}, "respecs": 0, "gear": {}, "runes": {}},
 		"gold": 250,
 		"hall": 1,
 		"members": [],
@@ -307,7 +307,7 @@ func gear_bonus(m: Dictionary) -> float:
 
 
 ## A guildmate's power: the damage their stats give (grade and gear), times what their talents,
-## abilities, traits and affixes are worth. 1.0 is an F grade naked. Thyeste's power is her healing
+## abilities, traits and affixes are worth. 1.0 is an F grade naked. Thyeste's power is his healing
 ## multiplier.
 func member_power(m: Dictionary) -> float:
 	if is_priest(m):
@@ -950,6 +950,46 @@ func reset_action_bar() -> void:
 	changed.emit()
 
 
+# ---------------------------------------------------------------- runes
+
+## The rune engraved in each slot, by slot id (a slot with nothing engraved is missing).
+func runes() -> Dictionary:
+	if not data["priest"].has("runes"):
+		data["priest"]["runes"] = {}
+	return data["priest"]["runes"]
+
+
+## The engraved runes that work at Thyeste's level, for combat.
+func active_runes() -> Array:
+	var out := []
+	for slot_id in runes():
+		var id: String = runes()[slot_id]
+		if Runes.slot_open(slot_id, level()) and Runes.unlocked(id, level()):
+			out.append(id)
+	return out
+
+
+## Engraves a rune in its slot, replacing the one there. Free, at any time out of combat.
+func engrave(id: String) -> void:
+	if not Runes.unlocked(id, level()):
+		return
+	var slot_id: String = Runes.LIST[id]["slot"]
+	if not Runes.slot_open(slot_id, level()):
+		return
+	runes()[slot_id] = id
+	save()
+	changed.emit()
+
+
+## Open slots with nothing engraved, for the reminders on the map and the top bar.
+func empty_rune_slots() -> int:
+	var n := 0
+	for s in Runes.SLOTS:
+		if Runes.slot_open(s["id"], level()) and runes().get(s["id"], "") == "":
+			n += 1
+	return n
+
+
 # ---------------------------------------------------------------- unlocks
 
 func dungeon_unlocked(d: Dictionary) -> bool:
@@ -992,7 +1032,7 @@ func priest_combat_spec(buffs: Dictionary) -> Dictionary:
 	var u := Balance.scale(level())
 	var wis := _buff_value(buffs, "priest_elixir")
 	return {
-		"name": p["name"], "talents": p["talents"], "known": action_bar(),
+		"name": p["name"], "talents": p["talents"], "known": action_bar(), "runes": active_runes(),
 		"max_hp": 100.0 * u * st["health_mult"] * (1.0 + _buff_value(buffs, "guardian_elixir")),
 		"max_mana": 300.0 * u * st["mana_mult"] * (1.0 + wis),
 		"regen": 6.0 * u * st["regen_mult"] * (1.0 + _buff_value(buffs, "food")),
@@ -1190,6 +1230,12 @@ func _grant(xp: int, g: int, items: Array) -> Dictionary:
 		run["levels"] += levels
 	if levels > 0:
 		add_log("%s reaches level %d." % [p["name"], p["level"]])
+		var fresh := []
+		for l in range(p["level"] - levels + 1, p["level"] + 1):
+			fresh.append_array(Runes.new_at(l))
+		if not fresh.is_empty():
+			add_log("%s can now engrave: %s." % [p["name"], ", ".join(fresh)])
+			toast.emit("Runes unlocked: %s. Engrave them at Talents & Spells." % ", ".join(fresh))
 		refresh_quests(true)
 		if data.has("missions"):
 			data["missions"]["board"].clear()

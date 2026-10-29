@@ -8,6 +8,11 @@ const RUNS := 40
 var TALENTS := not ("--no-talents" in OS.get_cmdline_user_args())
 ## Whether guildmates use their talent abilities.
 var ABILITIES := not ("--no-abilities" in OS.get_cmdline_user_args())
+## Whether the bot engraves runes in the table (false shows what enemies' rune scaling does to a
+## priest without them).
+var RUNES := not ("--no-runes" in OS.get_cmdline_user_args())
+## The bot's runes in the table: a middle-of-the-road pick in each slot, not the strongest.
+const BOT_RUNES := {"spell": "mending", "personal": "warding_light", "group": "fortitude"}
 
 const BUILD := ["spiritual_healing", "spiritual_healing", "spiritual_healing", "spiritual_healing", "spiritual_healing",
 	"holy_specialization", "holy_specialization", "holy_specialization", "holy_specialization", "holy_specialization",
@@ -21,6 +26,10 @@ const BUILD := ["spiritual_healing", "spiritual_healing", "spiritual_healing", "
 
 
 func _init() -> void:
+	if "--runes" in OS.get_cmdline_user_args():
+		_rune_table()
+		quit()
+		return
 	print("kind      lvl  tier gear  diff | win%  time  mana%  deaths  hps")
 	for row in [
 		["quest", 1, 2, 0.10, 1.0], ["quest", 3, 2, 0.15, 1.0], ["quest", 6, 2, 0.25, 1.0], ["quest", 6, 2, 0.25, 1.18],
@@ -55,7 +64,32 @@ func _talents(level: int) -> Dictionary:
 	return t
 
 
-func _scenario(kind: String, level: int, tier: int, gear: float, diff: float) -> void:
+## Each rune alone against none, in fights harder than the table above (so that the bot loses some):
+## run with -- --runes.
+func _rune_table() -> void:
+	print("Runes: the bot with one rune engraved, against none (enemies hit %d%% harder at 60 for runes)" % int(
+		(Encounters.rune_damage_scale(60) - 1.0) * 100.0))
+	print("rune                kind      lvl  tier gear  diff | win%  time  mana%  deaths  hps")
+	for row in [["dungeon", 35, 6, 0.45, 1.85], ["dungeon", 50, 8, 0.50, 2.05], ["raid", 60, 13, 0.80, 3.5]]:
+		_scenario(row[0], row[1], row[2], row[3], row[4], [], "(none)")
+		for id in Runes.LIST:
+			if Runes.unlocked(id, row[1]):
+				_scenario(row[0], row[1], row[2], row[3], row[4], [id], id)
+		print("")
+
+
+func _bot_runes(level: int) -> Array:
+	var out := []
+	for slot_id in BOT_RUNES:
+		if RUNES and Runes.slot_open(slot_id, level) and Runes.unlocked(BOT_RUNES[slot_id], level):
+			out.append(BOT_RUNES[slot_id])
+	return out
+
+
+## `runes` and `label` for the rune table; the main table engraves the bot's runes.
+func _scenario(kind: String, level: int, tier: int, gear: float, diff: float, runes := [], label := "") -> void:
+	if label == "":
+		runes = _bot_runes(level)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 1234 + level
 	var wins := 0
@@ -70,7 +104,7 @@ func _scenario(kind: String, level: int, tier: int, gear: float, diff: float) ->
 			specs.append(_member(sid, level, tier, gear, rng))
 		var tal := _talents(level)
 		var ps := Stats.compute_stats("priest", "priest", level, _gear("priest", "healing", level, gear))
-		var priest := {"name": "Bot", "talents": tal, "known": Spells.known(level, tal),
+		var priest := {"name": "Bot", "talents": tal, "known": Spells.known(level, tal), "runes": runes,
 			"max_hp": 100.0 * u * ps["health_mult"], "max_mana": 300.0 * u * ps["mana_mult"],
 			"regen": 6.0 * u * ps["regen_mult"], "heal_power": ps["heal_power"],
 			"crit": ps["spell_crit"] / 100.0, "dodge": ps["dodge"], "mit": Stats.armor_factor("priest", level, ps["armor"])}
@@ -115,8 +149,8 @@ func _scenario(kind: String, level: int, tier: int, gear: float, diff: float) ->
 		mana += eng.mana / eng.max_mana
 		deaths += eng.stats["deaths"]
 		hps += eng.stats["healing"] / maxf(eng.time, 1.0) / u
-	print("%-8s %4d  %4s %4.2f %5.2f | %4d  %4.0f  %4.0f   %5.2f  %4.1f" % [kind, level, Tiers.name_of(tier), gear, diff,
-		100 * wins / RUNS, time / RUNS, 100.0 * mana / RUNS, float(deaths) / RUNS, hps / RUNS])
+	print("%s%-8s %4d  %4s %4.2f %5.2f | %4d  %4.0f  %4.0f   %5.2f  %4.1f" % ["%-18s  " % label if label != "" else "", kind, level,
+		Tiers.name_of(tier), gear, diff, 100 * wins / RUNS, time / RUNS, 100.0 * mana / RUNS, float(deaths) / RUNS, hps / RUNS])
 
 
 ## A competent but not perfect healer.
@@ -147,6 +181,11 @@ func _bot(eng: CombatEngine) -> void:
 				return
 	if tank != null and eng.cast("prayer_of_mending", tank) == "":
 		return
+	# Rune of Soul Warding: keep the tank shielded, then whoever is hurt.
+	if "soul_warding" in eng.runes:
+		for m in ([tank, low] if tank != null else [low]):
+			if m.frac() < 0.9 and not m.has("pws") and eng.cast("shield", m) == "":
+				return
 	if injured >= 3:
 		for sp in ["circle_of_healing", "prayer_of_healing"]:
 			if eng.cast(sp, null) == "":
@@ -155,6 +194,9 @@ func _bot(eng: CombatEngine) -> void:
 		return
 	if low.frac() < 0.6:
 		if eng.cast("penance", low) == "":
+			return
+		# Rune of Binding Light: Flash Heal when more than one ally is hurt.
+		if "binding" in eng.runes and injured >= 2 and eng.cast("flash_heal", low) == "":
 			return
 		if eng.cast("heal", low) == "":
 			return

@@ -10,10 +10,12 @@ const BUFF_COLORS := {
 	"renew": Color("6ee06e"), "pws": Color("e8f0ff"), "pom": Color("ffd86b"), "grace": Color("fff0a0"), "inspiration": Color("a0d0ff"),
 	"aegis": Color("ffcf5a"), "power_infusion": Color("ff9a3c"), "pain_suppression": Color("b088ff"),
 	"shield_wall": Color("b0b0b0"), "evasion": Color("fff569"), "barkskin": Color("a07040"),
-	"weakened_soul": Color("7a5a5a"),
+	"weakened_soul": Color("7a5a5a"), "ward": Color("ffe9a8"), "overflow": Color("fff6c0"), "clearcasting": Color("8ac4ff"),
+	"fervor": Color("ff9a3c"), "echo": Color("b8ff9a"),
 }
 const BUFF_LETTERS := {"renew": "R", "pws": "S", "pom": "M", "grace": "G", "inspiration": "I", "aegis": "A", "power_infusion": "P",
-	"pain_suppression": "Ps", "shield_wall": "W", "evasion": "E", "barkskin": "B"}
+	"pain_suppression": "Ps", "shield_wall": "W", "evasion": "E", "barkskin": "B", "ward": "L", "overflow": "O", "clearcasting": "C",
+	"fervor": "F", "echo": "Ec"}
 
 const AURA := 18.0
 ## The cast bar strip above the frame itself.

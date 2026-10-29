@@ -38,7 +38,8 @@ const AURAS := {
 	"renew": "spell_holy_renew", "pws": "spell_holy_powerwordshield", "pom": "spell_holy_prayerofmendingtga",
 	"grace": "spell_holy_hopeandgrace", "inspiration": "inv_shield_06", "aegis": "spell_holy_devineaegis",
 	"power_infusion": "spell_holy_powerinfusion", "pain_suppression": "spell_holy_painsupression",
-	"shield_wall": "ability_warrior_shieldwall",
+	"shield_wall": "ability_warrior_shieldwall", "ward": "spell_holy_divineprotection", "overflow": "spell_holy_aspiration",
+	"clearcasting": "spell_shadow_manaburn", "fervor": "spell_holy_innerfire", "echo": "spell_holy_prayerofspirit",
 	"evasion": "spell_shadow_shadowward", "barkskin": "spell_nature_stoneclawtotem", "ice_block": "spell_frost_frost",
 }
 
@@ -178,4 +179,7 @@ static func all_names() -> Array:
 	for r in HEAL_RANKS + DEBUFF_NAMES:
 		if not (r[1] in out):
 			out.append(r[1])
+	for id in Runes.LIST:
+		if not (Runes.LIST[id]["wow"] in out):
+			out.append(Runes.LIST[id]["wow"])
 	return out

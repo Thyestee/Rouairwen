@@ -1,8 +1,11 @@
 class_name TalentPage
 extends HBoxContainer
-## Discipline and Holy talent trees, and the spellbook with keybinds.
+## Discipline and Holy talent trees or the runes, and the spellbook with keybinds.
 
 const CELL := 40
+
+## What the left of the page shows, "talents" or "runes"; kept while the page is rebuilt.
+static var tab := "talents"
 
 
 func rebuild() -> void:
@@ -12,26 +15,57 @@ func rebuild() -> void:
 	var left := Style.vbox(8)
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	add_child(left)
+	left.add_child(_head())
+	if tab == "runes":
+		left.add_child(_runes())
+	else:
+		var trees := Style.hbox(12)
+		trees.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		for tree_id in ["discipline", "holy"]:
+			trees.add_child(_tree(tree_id))
+		left.add_child(trees)
+	add_child(_spellbook())
+
+
+func _head() -> Control:
 	var head := Style.hbox(10)
 	var hv := Style.vbox(2)
 	hv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	hv.add_child(Style.title("Talents", 26))
-	var free := Game.talent_points_free()
 	var spent := Talents.spent(Game.priest()["talents"])
-	var info := "You earn one talent point per level from level 10. " + ("[color=#6ee06e]%d point%s to spend.[/color]" % [free, "" if free == 1 else "s"] if free > 0 else "%d spent." % spent)
-	if Game.level() < Balance.TALENT_START_LEVEL:
-		info = "Talents unlock at level 10."
-	hv.add_child(Style.rich(info, 14))
+	if tab == "runes":
+		hv.add_child(Style.title("Runes", 26))
+		var info := "Engrave one rune in each slot; changing them is free. The slots open at levels 20, 30 and 40, and more runes unlock as you level. Enemies hit harder as the slots open, so keep all of them filled."
+		if Game.empty_rune_slots() > 0:
+			info += " [color=#6ee06e]%d slot%s to fill.[/color]" % [Game.empty_rune_slots(), "" if Game.empty_rune_slots() == 1 else "s"]
+		var r := Style.rich(info, 14)
+		r.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		hv.add_child(r)
+	else:
+		hv.add_child(Style.title("Talents", 26))
+		var free := Game.talent_points_free()
+		var info := "You earn one talent point per level from level 10. " + ("[color=#6ee06e]%d point%s to spend.[/color]" % [free, "" if free == 1 else "s"] if free > 0 else "%d spent." % spent)
+		if Game.level() < Balance.TALENT_START_LEVEL:
+			info = "Talents unlock at level 10."
+		hv.add_child(Style.rich(info, 14))
 	head.add_child(hv)
-	if spent > 0:
+	if tab == "talents" and spent > 0:
 		head.add_child(Style.button("Reset talents (%s)" % Balance.money(Balance.respec_cost(Game.level(), Game.priest()["respecs"])), _respec))
-	left.add_child(head)
-	var trees := Style.hbox(12)
-	trees.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	for tree_id in ["discipline", "holy"]:
-		trees.add_child(_tree(tree_id))
-	left.add_child(trees)
-	add_child(_spellbook())
+	var group := ButtonGroup.new()
+	for t in [["talents", "Talents"], ["runes", "Runes"]]:
+		# An empty rune slot lights the Runes tab up.
+		var b := Style.button(t[1], Callable(), t[0] == "runes" and tab != "runes" and Game.empty_rune_slots() > 0)
+		b.toggle_mode = true
+		b.button_group = group
+		b.button_pressed = tab == t[0]
+		b.custom_minimum_size.x = 100
+		b.pressed.connect(_tab.bind(t[0]))
+		head.add_child(b)
+	return head
+
+
+func _tab(t: String) -> void:
+	tab = t
+	rebuild()
 
 
 func _respec() -> void:
@@ -114,6 +148,82 @@ func _talent_cell(tal: Dictionary, tree_id: String, talents: Dictionary) -> Cont
 	return v
 
 
+## The three rune slots side by side, each with every rune it can hold.
+func _runes() -> Control:
+	var h := Style.hbox(12)
+	h.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	for s in Runes.SLOTS:
+		h.add_child(_rune_slot(s, Game.runes().get(s["id"], "")))
+	return h
+
+
+func _rune_slot(s: Dictionary, current: String) -> Control:
+	var open := Runes.slot_open(s["id"], Game.level())
+	var col: Color = s["color"]
+	var p := Style.panel(Color(0.07, 0.04, 0.06, 0.92), col.darkened(0.55) if open else Color(0.3, 0.25, 0.2), 2, 10)
+	p.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var v := Style.vbox(6)
+	p.add_child(v)
+	var h := Style.hbox(6)
+	h.add_child(Style.label(s["name"], 20, col if open else Style.C["dim"], true))
+	var state := "Level %d" % s["level"]
+	if open:
+		state = Runes.LIST[current]["name"].trim_prefix("Rune of ").trim_prefix("the ") if current != "" else "Empty"
+	# The engraved rune's name gives way rather than widen its column: the three stay the same width.
+	var sl := Style.label(state, 13, Style.C["muted"] if open and current != "" else (Color("6ee06e") if open else Color("ff8a6a")))
+	sl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	sl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	h.add_child(sl)
+	v.add_child(h)
+	var d := Style.label(s["desc"] + ("" if open else " Opens at level %d." % s["level"]), 13, Style.C["muted"])
+	d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(d)
+	var list := Style.vbox(6)
+	for id in Runes.in_slot(s["id"]):
+		list.add_child(_rune_card(id, id == current, open))
+	var sc := Style.scroll(list)
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	v.add_child(sc)
+	return p
+
+
+## A rune: its icon, what it does, and Engrave (or why it can't be engraved yet).
+func _rune_card(id: String, engraved: bool, open: bool) -> Control:
+	var r: Dictionary = Runes.LIST[id]
+	var ready := open and Runes.unlocked(id, Game.level())
+	var card := PanelContainer.new()
+	var border := Color("ffd86b") if engraved else (Color(0.36, 0.17, 0.1) if ready else Color(0.2, 0.15, 0.12))
+	card.add_theme_stylebox_override("panel", Style.box(Color(0.3, 0.2, 0.05, 0.45) if engraved else Color(0, 0, 0, 0.22), border, 2 if engraved else 1, 5, 7))
+	var h := Style.hbox(8)
+	card.add_child(h)
+	var ic := SpellIcon.new(r["icon"], r["wow"])
+	ic.custom_minimum_size = Vector2(40, 40)
+	ic.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	ic.dim = not ready
+	h.add_child(ic)
+	var tv := Style.vbox(4)
+	tv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var text := "[b][color=#%s]%s[/color][/b]\n[font_size=12][color=#%s]%s[/color][/font_size]" % [
+		"ffd86b" if engraved else ("ffffff" if ready else "8a7262"), r["name"], "e0cdb8" if ready else "8a7262", Runes.describe(id)]
+	var spell: String = r.get("spell", "")
+	if spell != "" and Spells.BOOK[spell].get("talent", false) and Game.priest()["talents"].get(spell, 0) <= 0:
+		text += "\n[font_size=12][color=#ff8a6a]Needs the %s talent.[/color][/font_size]" % Spells.BOOK[spell]["name"]
+	var d := Style.rich(text, 15)
+	d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tv.add_child(d)
+	if engraved:
+		tv.add_child(Style.label("Engraved", 13, Style.C["gold"]))
+	elif ready:
+		var b := Style.button("Engrave", Game.engrave.bind(id))
+		b.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		tv.add_child(b)
+	elif not Runes.unlocked(id, Game.level()):
+		tv.add_child(Style.label("Unlocks at level %d" % r["level"], 13, Color("ff8a6a")))
+	h.add_child(tv)
+	return card
+
+
 ## The spells in action bar order: drag one (or use its arrows) to give it another slot and key.
 func _spellbook() -> Control:
 	var p := Style.panel(Color(0.14, 0.06, 0.04, 0.92), Color("6a2414"), 2, 12)
@@ -183,6 +293,9 @@ func _spell_row(id: String, i: int, count: int, ps: Dictionary) -> Control:
 	if amount != "":
 		lines.append("[font_size=12]%s[/font_size]" % amount)
 	lines.append("[font_size=12][color=#c09f86]%s · %d mana. %s[/color][/font_size]" % [cast_txt, int(s["mana"] * Balance.scale(lvl)), s["desc"]])
+	var rune := Runes.spell_line(id, Game.active_runes())
+	if rune != "":
+		lines.append("[font_size=12]%s[/font_size]" % rune)
 	var d := Style.rich("\n".join(lines), 14)
 	d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	d.mouse_filter = Control.MOUSE_FILTER_IGNORE

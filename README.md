@@ -18,7 +18,15 @@ godot --path rouairwen
 
 **Action bar and keys**: in the **Spellbook** (Talents & Spells), drag a spell or use its arrows to move it to another action bar slot. **Key bindings** (in the Spellbook and in Options) rebinds every slot, the mana potion and pause, Shift/Ctrl/Alt combinations included; keys are saved by physical position, so they stay put on any keyboard layout.
 
-**Healing power** works like in WoW: Healing and Spell Damage from gear add up to Thyeste's healing power, and every heal adds a share of it, its coefficient. A direct heal gets its cast time / 3.5 sec (Lesser Heal 71%, Flash Heal 43%), Renew 100% split between its 5 ticks, Penance its channel time / 3.5 split between its bolts (the Lightwell's 20 heals over 10 sec count as one channel, 14% each), Prayer of Healing and Circle of Healing half the usual share on each target, Power Word: Shield 30%. Empowered Healing raises Heal's coefficient. Thyeste is a pure healer: she has no damage spell, and Twin Disciplines raises the healing and absorption of her instant spells instead. Spell tooltips and the Spellbook show what each spell heals with your gear. Healing and Spell Damage on items grow 6% a level like the spells do, so a coefficient is worth as much at every level.
+**Healing power** works like in WoW: Healing and Spell Damage from gear add up to Thyeste's healing power, and every heal adds a share of it, its coefficient. A direct heal gets its cast time / 3.5 sec (Lesser Heal 71%, Flash Heal 43%), Renew 100% split between its 5 ticks, Penance its channel time / 3.5 split between its bolts (the Lightwell's 20 heals over 10 sec count as one channel, 14% each), Prayer of Healing and Circle of Healing half the usual share on each target, Power Word: Shield 30%. Empowered Healing raises Heal's coefficient. Thyeste is a pure healer: he has no damage spell, and Twin Disciplines raises the healing and absorption of his instant spells instead. Spell tooltips and the Spellbook show what each spell heals with your gear. Healing and Spell Damage on items grow 6% a level like the spells do, so a coefficient is worth as much at every level.
+
+**Runes** (Talents & Spells → Runes): Thyeste engraves one rune in each of three slots, and changes them for free between fights. Each rune unlocks as he levels, once the spell it changes is within reach. Runes are meant to be strong and to combine: enemies hit harder as the slots open, so the game expects all three to be filled.
+
+- The **spell rune** slot opens at level 20 and changes how one spell works: **Mending** (Prayer of Mending also casts Renew on each ally it heals), **Binding Light** (Flash Heal also heals the most injured other ally for the same amount), **Penitence** (Penance fires 5 bolts over 4 sec, and its cooldown is 6 sec), **Soul Warding** (no Weakened Soul, and Power Word: Shield costs 30% less) and, at 30, **Echoing Prayer** (Prayer of Healing heals each ally as much again over 6 sec).
+- The **personal rune** slot opens at 30 and holds a passive of his own: **Warding Light** (+10% critical chance with heals, and critical heals shield the target for 20% of the heal), **Clarity** (every fourth spell is free), **Desperate Prayer** (35: heals on allies below 35% health are 30% stronger, and below 35% he heals himself for 40%, once a minute), **Overflowing Light** (40: half of all overhealing becomes a shield, up to 20% of health) and **Fervor** (50: each spell cast makes heals 3% stronger, up to 15%).
+- The **group rune** slot opens at 40 and holds a passive for the whole party: **Shared Pain** (20% of the damage anyone takes is spread evenly over the party; shared damage isn't shared again), **Fortitude** (15% more health for everyone), **Zeal** (45: guildmates deal 15% more damage), **Atonement** (50: 5% of the guild's damage heals the most injured ally) and the **Guardian Spirit** (55: an ally who would die is healed to 40% instead, once every 40 sec).
+
+They combine with each other and with talents: Shared Pain sets Prayer of Mending bouncing, Soul Warding's shields feed Divine Aegis and Rapture, Warding Light's crits feed Inspiration and Surge of Light. The Spellbook and spell tooltips show what an engraved spell rune adds.
 
 ## Activities
 
@@ -78,6 +86,9 @@ godot --headless --path launcher -- --check-only --install-dir=/tmp/lumens-test
 ```bash
 # Balance table: bot-healer win rates, tier odds and the gold/time curve
 godot --headless --path rouairwen --script res://tools/balance_sim.gd
+
+# Each rune alone against none, in harder fights
+godot --headless --path rouairwen --script res://tools/balance_sim.gd -- --runes
 
 # End-to-end smoke test on a throwaway save (add --shots, without --headless, for screenshots)
 godot --headless --path rouairwen -- --smoke

@@ -152,6 +152,7 @@ func run() -> void:
 			"holy_specialization", "holy_specialization", "holy_specialization", "holy_specialization", "holy_specialization", "prayer_of_mending"]:
 		Game.learn(t)
 	_check(Game.priest()["talents"].get("prayer_of_mending", 0) == 1, "learned Prayer of Mending")
+	_check_runes()
 	Game.buy("mana_potion", 5)
 	Game.buy("battle_elixir", 2)
 	Game.upgrade_hall()
@@ -169,6 +170,11 @@ func run() -> void:
 	await _check_action_bar()
 	await _frames(3)
 	await _shot("05_talents")
+	TalentPage.tab = "runes"
+	main.screen.refresh()
+	await _frames(3)
+	await _shot("05_runes")
+	TalentPage.tab = "talents"
 	main.open_key_bindings()
 	await _frames(3)
 	await _shot("05_key_bindings")
@@ -214,6 +220,15 @@ func run() -> void:
 					break
 			if Items.can_use(it, Game.member_class(m)):
 				m["gear"][slot] = it
+	# All three runes in the raid: Prayer of Mending's Renews, crit shields, and shared damage on the meter.
+	for id in ["mending", "warding_light", "shared_pain"]:
+		Game.engrave(id)
+	_check(Game.active_runes().size() == 3 and Game.empty_rune_slots() == 0, "a rune engraved in each of the three slots at 60")
+	TalentPage.tab = "runes"
+	main.show_hub("talents")
+	await _frames(3)
+	await _shot("08_runes")
+	TalentPage.tab = "talents"
 	var r := Raids.by_id("mc")
 	var prestige_before := Game.prestige_total()
 	Game.start_run(Activities.make_raid(r, [], Game.rng), _ids(9))
@@ -399,6 +414,178 @@ func _check_lightwell(e: CombatEngine) -> void:
 	for i in 2:
 		e._tick_lightwell(0.5)
 	_check(standing and e.lightwell.is_empty(), "the Lightwell fades after 20 sec, its charges unused")
+
+
+## Runes: three slots that open at 20, 30 and 40 with 3-5 runes each, unlocked once what they change is
+## within reach; engraving; and what each rune does in a fight.
+func _check_runes() -> void:
+	var sizes_ok := Runes.SLOTS.all(func(s): return Runes.in_slot(s["id"]).size() >= 3 and Runes.in_slot(s["id"]).size() <= 5)
+	_check(sizes_ok and Runes.SLOTS[0]["level"] == 20, "three rune slots, the first at level 20, each with 3 to 5 runes")
+	var coherent := true
+	for id in Runes.LIST:
+		var r: Dictionary = Runes.LIST[id]
+		if r["level"] < Runes.slot(r["slot"])["level"] or Runes.describe(id).contains("{"):
+			coherent = false
+		if r.has("spell"):
+			var sp: Dictionary = Spells.BOOK[r["spell"]]
+			if sp.get("talent", false):
+				if Balance.talent_points_at(r["level"]) <= Talents.find(r["spell"])["tier"] * Talents.POINTS_PER_TIER:
+					coherent = false
+			elif sp["level"] > r["level"]:
+				coherent = false
+	_check(coherent, "each rune unlocks in its slot once the spell it changes is within reach")
+	# Engraving at level 24: the spell slot only
+	Game.engrave("warding_light")
+	Game.engrave("echoing_prayer")
+	_check(Game.runes().is_empty() and Game.empty_rune_slots() == 1, "runes of closed slots or higher levels can't be engraved")
+	Game.engrave("binding")
+	Game.engrave("mending")
+	_check(Game.active_runes() == ["mending"] and Game.priest_combat_spec({})["runes"] == ["mending"] and Game.empty_rune_slots() == 0,
+		"an engraved rune replaces the one in its slot")
+	_check(Runes.spell_line("prayer_of_mending", Game.active_runes()).contains("Renew"), "the spellbook shows a spell's rune")
+
+	# Each rune at work, calling the engine's parts directly (no fight running)
+	var e := _rune_engine(["mending"])
+	var e0 := _rune_engine([])
+	for x in [e, e0]:
+		x._resolve("prayer_of_mending", x.party[1])
+		x.damage(x.party[1], 1.0, null)
+	_check(e.party[1].has("renew") and not e0.party[1].has("renew"), "Rune of Mending: Prayer of Mending casts Renew where it heals")
+
+	e = _rune_engine(["binding"])
+	var a: CombatEngine.Unit = e.party[1]
+	var b: CombatEngine.Unit = e.party[2]
+	a.hp = a.max_hp * 0.5
+	b.hp = b.max_hp * 0.5
+	var b_hp := b.hp
+	e._resolve("flash_heal", a)
+	_check(b.hp > b_hp and e.priest.healing_by.has("Binding Light"), "Rune of Binding Light: Flash Heal also heals the most injured other ally")
+
+	var e_plain := _rune_engine([], false)
+	e = _rune_engine(["penitence"])
+	e.known.append("penance")
+	e.cast("penance", e.party[1])
+	_check(e.casting.get("bolts", 0) == 5 and is_equal_approx(e.casting.get("total", 0.0), 4.0) and is_equal_approx(e.cooldown_left("penance"), 6.0),
+		"Rune of Penitence: Penance fires 5 bolts over 4 sec, every 6 sec")
+
+	e = _rune_engine(["soul_warding"])
+	e._resolve("shield", e.party[1])
+	_check(not e.party[1].has("weakened_soul") and is_equal_approx(e.spell_cost("shield"), e_plain.spell_cost("shield") * 0.7),
+		"Rune of Soul Warding: no Weakened Soul, and Power Word: Shield costs 30% less")
+
+	e = _rune_engine(["echoing_prayer"])
+	for x in e.party:
+		x.hp = x.max_hp * 0.5
+	e._resolve("prayer_of_healing", null)
+	_check(e.party.all(func(x): return x.has("echo")), "Rune of Echoing Prayer: Prayer of Healing leaves a heal over time")
+
+	e = _rune_engine(["warding_light"], false)
+	var crit_up := is_equal_approx(e.crit, e_plain.crit + 0.1)
+	e.crit = 1.0
+	e._heal(e.party[1], 100.0, true, "heal")
+	_check(crit_up and e.party[1].get_aura("ward").get("absorb", 0.0) > 25.0,
+		"Rune of Warding Light: +10% critical chance, and a critical heal shields for 20% of it")
+
+	e = _rune_engine(["clarity"])
+	for i in 3:
+		e._spend("renew")
+	var mana_before := e.mana
+	var free := e.priest.has("clearcasting") and e.spell_cost("renew") == 0.0
+	e._spend("renew")
+	_check(free and e.mana == mana_before and not e.priest.has("clearcasting"), "Rune of Clarity: the fourth spell is free")
+
+	e = _rune_engine(["desperate_prayer"])
+	var p: CombatEngine.Unit = e.priest
+	p.hp = p.max_hp * 0.36
+	e.damage(p, p.max_hp * 0.1 / p.mit, null)
+	_check(p.frac() > 0.6 and e.desperate_cd > 0.0, "Rune of Desperate Prayer: you heal yourself below 35%% health (now %d%%)" % int(p.frac() * 100.0))
+	# Same seed, so both engines draw the same random spread: only the rune differs.
+	var heals := []
+	for x in [_rune_engine(["desperate_prayer"]), _rune_engine([])]:
+		x.party[1].hp = x.party[1].max_hp * 0.2
+		heals.append(x._heal(x.party[1], 100.0, false, "heal"))
+	_check(absf(heals[0] / heals[1] - 1.3) < 0.01, "Rune of Desperate Prayer: heals on allies below 35% are 30% stronger")
+
+	e = _rune_engine(["overflow"])
+	e._heal(e.party[1], e.party[1].max_hp, false, "heal")
+	var ov: float = e.party[1].get_aura("overflow").get("absorb", 0.0)
+	_check(ov > 0.0 and ov <= e.party[1].max_hp * 0.2 + 0.01, "Rune of Overflowing Light: overhealing becomes a shield, up to 20% of health")
+
+	e = _rune_engine(["fervor"])
+	var plain := e._base_heal("heal")
+	for i in 3:
+		e._spend("renew")
+	_check(e.priest.get_aura("fervor").get("stacks", 0) == 3 and is_equal_approx(e._base_heal("heal"), plain * 1.09),
+		"Rune of Fervor: each spell cast makes heals 3% stronger")
+
+	e = _rune_engine(["shared_pain"])
+	var n := e.party.size()
+	var tank: CombatEngine.Unit = e.party[1]
+	var hit := tank.max_hp * 0.3
+	var before: Array = e.party.map(func(x): return x.hp)
+	e.damage(tank, hit / tank.mit, null)
+	var other_loss: float = before[2] - e.party[2].hp
+	var tank_loss: float = before[1] - tank.hp
+	_check(absf(other_loss - hit * 0.2 / n) < 0.5 and absf(tank_loss - hit * (0.8 + 0.2 / n)) < 0.5,
+		"Rune of Shared Pain: 20% of a hit is spread over the whole party")
+
+	e = _rune_engine(["fortitude"])
+	_check(is_equal_approx(e.party[1].max_hp, e_plain.party[1].max_hp * 1.15) and is_equal_approx(e.priest.max_hp, e_plain.priest.max_hp * 1.15),
+		"Rune of Fortitude: everyone has 15% more health")
+	e = _rune_engine(["zeal"])
+	_check(is_equal_approx(e.party[1].dps, e_plain.party[1].dps * 1.15), "Rune of Zeal: guildmates deal 15% more damage")
+
+	e = _rune_engine(["atonement"])
+	var foe := CombatEngine.Unit.new()
+	foe.is_enemy = true
+	foe.max_hp = 1e9
+	foe.hp = 1e9
+	e.enemies.append(foe)
+	var hurt: CombatEngine.Unit = e.party[2]
+	hurt.hp = hurt.max_hp * 0.2
+	var hurt_hp := hurt.hp
+	e._damage_enemy(foe, hurt.max_hp, e.party[1])
+	e._tick_atonement(1.0)
+	_check(hurt.hp > hurt_hp and e.priest.healing_by.has("Atonement"), "Rune of Atonement: the guild's damage heals the most injured ally")
+
+	e = _rune_engine(["guardian"])
+	var g: CombatEngine.Unit = e.party[1]
+	g.mods = {}
+	e.damage(g, g.max_hp * 5.0 / g.mit, null)
+	var saved := g.alive and absf(g.frac() - 0.4) < 0.01
+	e.damage(g, g.max_hp * 5.0 / g.mit, null)
+	_check(saved and not g.alive, "Rune of the Guardian Spirit: saves an ally at 40% health, then not again for 40 sec")
+
+	# Divine Aegis: no longer from critical heals (Warding Light's job), but from Power Word: Shields used up
+	e = _rune_engine([])
+	e.talents["divine_aegis"] = 3
+	e._talent_values["divine_aegis"] = Talents.value(e.talents, "divine_aegis")
+	e.crit = 1.0
+	e._heal(e.party[3], 100.0, true, "heal")
+	var shielded: CombatEngine.Unit = e.party[1]
+	var hurt_most: CombatEngine.Unit = e.party[2]
+	e._resolve("shield", shielded)
+	var strength: float = shielded.get_aura("pws")["strength"]
+	hurt_most.hp = hurt_most.max_hp * 0.3
+	e.damage(shielded, (strength + 1.0) / shielded.mit, null)
+	var aegis: float = hurt_most.get_aura("aegis").get("absorb", 0.0)
+	_check(not e.party[3].has("aegis") and not shielded.has("pws") and absf(aegis - minf(strength * 0.45, hurt_most.max_hp * 0.4)) < 0.5,
+		"Divine Aegis: a used-up Power Word: Shield shields the most injured ally for 45% of it")
+
+
+## An engine with Thyeste, four guildmates, these runes and no enemy, whose parts are called directly.
+## Crits are off unless asked for, so heals are predictable.
+func _rune_engine(runes: Array, no_crit := true) -> CombatEngine:
+	var ps := Game.priest_combat_spec({})
+	ps["runes"] = runes
+	var specs := []
+	for m in Game.members().slice(0, 4):
+		specs.append(Game.member_combat_spec(m, {}))
+	var e := CombatEngine.new()
+	e.setup(ps, specs, [], {"level": Game.level(), "seed": 11})
+	if no_crit:
+		e.crit = 0.0
+	return e
 
 
 ## Missions show their experience (30-50% of a level) and keep their spoils, gold, gear or both, a
@@ -618,6 +805,15 @@ func _ui_only() -> void:
 	main.show_hub("character")
 	await _frames(3)
 	await _shot("10_ui_sheet")
+	# The runes at 60, the longest names engraved (the three columns keep the same width)
+	Game.data["priest"]["level"] = 60
+	for id in ["echoing_prayer", "desperate_prayer", "guardian"]:
+		Game.engrave(id)
+	TalentPage.tab = "runes"
+	main.show_hub("talents")
+	await _frames(3)
+	await _shot("10_ui_runes")
+	TalentPage.tab = "talents"
 	print("SMOKE TEST %s (%d failure%s)" % ["PASSED" if failures == 0 else "FAILED", failures, "" if failures == 1 else "s"])
 	get_tree().quit(1 if failures > 0 else 0)
 

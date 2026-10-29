@@ -35,6 +35,10 @@ const TALENT_HP := 0.65
 const TALENT_HP_PER_MEMBER := 0.02
 const TALENT_DAMAGE := 0.3
 const TALENT_DAMAGE_PER_MEMBER := 0.02
+## Extra enemy damage once each rune slot is open (see rune_damage_scale). Set with tools/balance_sim.gd:
+## its bot, with a middle-of-the-road rune in each slot (Mending, Warding Light, Fortitude), fares about
+## like a priest without runes did before them, so stronger combinations come out ahead.
+const RUNE_DAMAGE := {"spell": 0.15, "personal": 0.06, "group": 0.02}
 const DOT_PERIOD := 3.0
 
 
@@ -53,6 +57,16 @@ static func talent_damage_scale(level: int, party_size: int) -> float:
 	return 1.0 + talent_frac(level) * (TALENT_DAMAGE + TALENT_DAMAGE_PER_MEMBER * party_size)
 
 
+## Enemies also hit harder as Thyeste's rune slots open (spell at 20, personal at 30, group at 40),
+## so that a priest with runes engraved is challenged like one without them was before runes.
+static func rune_damage_scale(level: int) -> float:
+	var s := 1.0
+	for slot in Runes.SLOTS:
+		if level >= slot["level"]:
+			s += RUNE_DAMAGE[slot["id"]]
+	return s
+
+
 ## fight: {"type": "pack"|"elite"|"boss"|"raid_boss", "mobs": [[name, abilities]], "boss": {name, abilities, enrage?}}
 static func build(fight: Dictionary, level: int, diff: float, party_size: int, rng: RandomNumberGenerator) -> Array:
 	var type: String = fight["type"]
@@ -62,7 +76,8 @@ static func build(fight: Dictionary, level: int, diff: float, party_size: int, r
 	var t: float = FIGHT_TIME[type] * (1.2 if fight.get("final", false) and type == "raid_boss" else 1.0)
 	var dps_ref := (n - 1) * 14.0 * diff
 	var total_hp := dps_ref * t * u * (0.65 + 0.35 * r) * talent_hp_scale(level, n)
-	var incoming: float = (21.0 + 4.6 * n) * sqrt(diff) * u * r * INCOMING_MULT[type] * talent_damage_scale(level, n)
+	var incoming: float = (21.0 + 4.6 * n) * sqrt(diff) * u * r * INCOMING_MULT[type] * talent_damage_scale(level, n) \
+		* rune_damage_scale(level)
 
 	var defs := []  # [name, abilities, weight, is_main, enrage]
 	if fight.has("boss"):

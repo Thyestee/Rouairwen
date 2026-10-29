@@ -39,10 +39,11 @@ func setup(p_id: String, p_action: String, p_engine: CombatEngine, level: int) -
 	else:
 		var s: Dictionary = Spells.BOOK[p_id]
 		var cast_txt := "Instant" if s["cast"] == 0.0 else ("Channeled (%.1f sec)" % s["cast"] if s.get("channel", 0) else "%.1f sec cast" % s["cast"])
-		var cd := "\n%d sec cooldown" % int(s["cooldown"]) if s.has("cooldown") else ""
+		var cd := "\n%d sec cooldown" % int(engine.spell_cooldown(p_id)) if s.has("cooldown") else ""
 		var amount := engine.amount_text(p_id)
-		set_tip("[b]%s[/b]\n%d Mana\n%s%s\n[color=#ffd100]%s[/color]%s%s" % [Spells.display_name(p_id, level),
-			int(engine.spell_cost(p_id)), cast_txt, cd, s["desc"], "\n" + amount if amount != "" else "", key_line])
+		var rune := Runes.spell_line(p_id, engine.runes)
+		set_tip("[b]%s[/b]\n%d Mana\n%s%s\n[color=#ffd100]%s[/color]%s%s%s" % [Spells.display_name(p_id, level),
+			int(engine.spell_cost(p_id)), cast_txt, cd, s["desc"], "\n" + amount if amount != "" else "", "\n" + rune if rune != "" else "", key_line])
 	return self
 
 
@@ -65,7 +66,7 @@ func _draw_overlay() -> void:
 	else:
 		var sp: Dictionary = Spells.BOOK[spell_id]
 		cd = engine.cooldown_left(spell_id)
-		total = sp.get("cooldown", 1.0)
+		total = engine.spell_cooldown(spell_id) if sp.has("cooldown") else 1.0
 		if not sp.get("off_gcd", false) and engine.gcd > cd:
 			cd = engine.gcd
 			total = CombatEngine.GCD

@@ -18,7 +18,7 @@ const PLACES := [
 	{"page": "dungeons", "name": "Dungeons", "district": "cleft", "at": Vector2(0.23, 0.48), "label": "below",
 		"desc": "Ragefire Chasm opens under the Cleft of Shadow. Every dungeon, from level 10."},
 	{"page": "talents", "name": "Talents & Spells", "district": "spirits", "at": Vector2(0.17, 0.71), "label": "below",
-		"desc": "Your talents, your spellbook and its key bindings."},
+		"desc": "Your talents and runes, your spellbook and its key bindings."},
 	{"page": "quests", "name": "Quest Board", "district": "strength", "at": Vector2(0.55, 0.69), "label": "right",
 		"desc": "Quests posted for your level, with gold and gear for rewards."},
 	{"page": "hall", "name": "Guild Hall", "district": "strength", "at": Vector2(0.84, 0.81), "label": "above",
@@ -107,8 +107,11 @@ func _get_tooltip(at_position: Vector2) -> String:
 		s += "\n[color=#ff8a6a]Opens at level %d.[/color]" % lock
 	elif page == "prestige":
 		s += "\n[color=#d8a8ff]Rank #%d · %d prestige to spend[/color]" % [Prestige.rank(Game.prestige_total()), Game.prestige()]
-	elif page == "talents" and Game.talent_points_free() > 0:
-		s += "\n[color=#6ee06e]%d talent point(s) to spend![/color]" % Game.talent_points_free()
+	elif page == "talents" and (Game.talent_points_free() > 0 or Game.empty_rune_slots() > 0):
+		if Game.talent_points_free() > 0:
+			s += "\n[color=#6ee06e]%d talent point(s) to spend![/color]" % Game.talent_points_free()
+		if Game.empty_rune_slots() > 0:
+			s += "\n[color=#6ee06e]%d empty rune slot(s) to engrave![/color]" % Game.empty_rune_slots()
 	elif page == "hall":
 		s += "\n[color=#c09f86]%s[/color]" % Balance.HALL_NAMES[Game.hall()]
 	return s
@@ -277,11 +280,12 @@ func _draw_place(p: Dictionary, font: Font) -> void:
 		ring = Color("6a5a50")
 	draw_arc(c, R, 0.0, TAU, 28, ring, 2.5 if current or hovered else 1.8, true)
 	_glyph(page, c, Color(0.55, 0.5, 0.45) if locked else Color.WHITE)
-	# Talent points waiting
-	if page == "talents" and Game.talent_points_free() > 0:
+	# Talent points waiting, or an empty rune slot ("R")
+	if page == "talents" and (Game.talent_points_free() > 0 or Game.empty_rune_slots() > 0):
 		var b := c + Vector2(R * 0.8, -R * 0.8)
 		draw_circle(b, 7.0, Color("2f8a2f"))
-		draw_string(font, b + Vector2(-7, 4), str(Game.talent_points_free()), HORIZONTAL_ALIGNMENT_CENTER, 14, 10, Color.WHITE)
+		var badge := str(Game.talent_points_free()) if Game.talent_points_free() > 0 else "R"
+		draw_string(font, b + Vector2(-7, 4), badge, HORIZONTAL_ALIGNMENT_CENTER, 14, 10, Color.WHITE)
 	# Label
 	var text: String = p["name"]
 	var fs := 13

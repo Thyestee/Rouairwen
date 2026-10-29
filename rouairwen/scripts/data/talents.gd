@@ -31,7 +31,7 @@ const TREES := {
 		{"id": "power_infusion", "name": "Power Infusion", "tier": 5, "col": 1, "ranks": 1, "icon": "infusion", "spell": true,
 			"desc": "Infuses an ally with power: +20% damage for 15s (or +20% casting speed on yourself). 90s cooldown."},
 		{"id": "divine_aegis", "name": "Divine Aegis", "tier": 5, "col": 2, "ranks": 3, "icon": "aegis",
-			"desc": "Critical heals also shield the target for %d%% of the amount healed.", "per": [10, 20, 30]},
+			"desc": "When one of your Power Word: Shields is used up, Divine Aegis shields the most injured ally for %d%% of its strength.", "per": [15, 30, 45]},
 		{"id": "pain_suppression", "name": "Pain Suppression", "tier": 6, "col": 1, "ranks": 1, "icon": "suppression", "spell": true,
 			"desc": "Reduces all damage taken by an ally by 40% for 8s. Off the global cooldown. 60s cooldown."},
 	]},
